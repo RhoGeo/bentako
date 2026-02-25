@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { ArrowLeft, Layers, Settings, Users, Archive, Copy, Link2, XCircle, ChevronRight } from "lucide-react";
 import { useNavigate, Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { base44 } from "@/api/base44Client";
+import { invokeFunction } from "@/api/posyncClient";
 import { createPageUrl } from "@/utils";
 import { setActiveStoreId, useActiveStoreId } from "@/components/lib/activeStore";
 import { useStoresForUser } from "@/components/lib/useStores";
@@ -26,7 +26,7 @@ export default function StoreAdmin() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { storeId: activeStoreId } = useActiveStoreId();
-  const { stores, user, isLoading } = useStoresForUser({ includeArchived: true });
+  const { stores, memberships, user, isLoading } = useStoresForUser({ includeArchived: true });
   const { staffMember } = useCurrentStaff(activeStoreId);
 
   // Owner-only entry point. (If you want to allow managers with permission, relax this.)
@@ -34,13 +34,7 @@ export default function StoreAdmin() {
   const canManageStaff = can(staffMember, "staff_manage");
   const canArchive = can(staffMember, "store_archive") || staffMember?.role === "owner";
 
-  const { data: myMemberships = [] } = useQuery({
-    queryKey: ["my-memberships", user?.email],
-    enabled: !!user?.email,
-    queryFn: () => base44.entities.StaffMember.filter({ user_email: user.email, is_active: true }),
-    initialData: [],
-    staleTime: 60_000,
-  });
+  const myMemberships = memberships || [];
 
   const ownerStoreIds = useMemo(() => {
     return new Set(myMemberships.filter((m) => m.role === "owner").map((m) => m.store_id));
@@ -58,8 +52,8 @@ export default function StoreAdmin() {
     queryKey: ["staff-invites", expandedStoreId],
     enabled: !!expandedStoreId && navigator.onLine,
     queryFn: async () => {
-      const res = await base44.functions.invoke("listStaffInvites", { store_id: expandedStoreId });
-      return res?.data?.data?.invites || res?.data?.invites || [];
+      const res = await invokeFunction("listStaffInvites", { store_id: expandedStoreId });
+      return res?.data?.invites || [];
     },
     initialData: [],
     staleTime: 15_000,
@@ -88,7 +82,7 @@ export default function StoreAdmin() {
     if (!window.confirm(confirmMsg)) return;
 
     const fn = isArchived ? "unarchiveStore" : "archiveStore";
-    const res = await base44.functions.invoke(fn, { store_id: sid });
+    const res = await invokeFunction(fn, { store_id: sid });
     if (res?.data?.ok === false) {
       toast.error(res?.data?.error?.message || "Failed");
       return;
@@ -102,16 +96,15 @@ export default function StoreAdmin() {
     if (!expandedStoreId) return;
     if (!email) return toast.error("Email required.");
 
-    const res = await base44.functions.invoke("inviteStaff", {
+    const res = await invokeFunction("inviteStaff", {
       store_id: expandedStoreId,
       invite_email: email,
       role: inviteForm.role,
     });
 
-    const data = res?.data?.data || res?.data;
-    const token = data?.invite_token;
+    const token = res?.data?.invite_token;
     if (!token) {
-      toast.error(data?.error?.message || "Invite failed.");
+      toast.error(res?.error?.message || "Invite failed.");
       return;
     }
 
@@ -129,7 +122,7 @@ export default function StoreAdmin() {
 
   const handleRevokeInvite = async (invite_id) => {
     if (!expandedStoreId) return;
-    await base44.functions.invoke("revokeStaffInvite", { store_id: expandedStoreId, invite_id });
+    await invokeFunction("revokeStaffInvite", { store_id: expandedStoreId, invite_id });
     toast.success("Invite revoked.");
     queryClient.invalidateQueries({ queryKey: ["staff-invites", expandedStoreId] });
   };

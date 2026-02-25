@@ -36,22 +36,13 @@ Deno.serve(async (req) => {
     const cashier = safeObj(body?.role_permissions_cashier_json);
     if (!manager && !cashier) return jsonFail(400, "BAD_REQUEST", "No permissions payload provided");
 
-    const { data: store, error: serr } = await supabase
-      .from("stores")
-      .select("store_settings_json")
-      .eq("store_id", store_id)
-      .single();
-    if (serr) throw new Error(serr.message);
-
-    const merged = { ...(store.store_settings_json || {}) };
-    if (manager) merged.role_permissions_manager_json = manager;
-    if (cashier) merged.role_permissions_cashier_json = cashier;
-
-    const { error: uerr } = await supabase
-      .from("stores")
-      .update({ store_settings_json: merged })
-      .eq("store_id", store_id);
-    if (uerr) throw new Error(uerr.message);
+    const { error: rpcErr } = await supabase.rpc("posync_update_store_permissions", {
+      p_store_id: store_id,
+      p_actor_user_id: user.user_id,
+      p_role_permissions_manager_json: manager || null,
+      p_role_permissions_cashier_json: cashier || null,
+    });
+    if (rpcErr) throw new Error(rpcErr.message);
 
     return jsonOk({ ok: true });
   } catch (err) {

@@ -1,5 +1,4 @@
 import React, { useMemo, useState } from "react";
-import { base44 } from "@/api/base44Client";
 import { invokeFunction } from "@/api/posyncClient";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
@@ -22,6 +21,7 @@ import { useActiveStoreId } from "@/components/lib/activeStore";
 import { useStoresForUser } from "@/components/lib/useStores";
 import { useStoreSettings } from "@/components/lib/useStoreSettings";
 import { getOfflineQueueCounts } from "@/lib/db";
+import { getAllCachedProducts, getAllCachedCustomers, listOfflineQueue } from "@/lib/db";
 import { can } from "@/components/lib/permissions";
 
 function startOfTodayISO() {
@@ -80,7 +80,11 @@ export default function Today() {
 
   const { data: products = [] } = useQuery({
     queryKey: ["today-products", storeId],
-    queryFn: () => base44.entities.Product.filter({ store_id: storeId, product_type: "single", is_active: true }),
+    queryFn: async () => {
+      // Prefer offline cache (works offline). Online refresh comes from pullSyncEvents during sync.
+      const cached = await getAllCachedProducts(storeId);
+      return (cached || []).filter((p) => p.product_type !== "parent" && p.is_active !== false);
+    },
     initialData: [],
     staleTime: 30_000,
   });
@@ -100,7 +104,10 @@ export default function Today() {
 
   const { data: customers = [] } = useQuery({
     queryKey: ["today-customers", storeId],
-    queryFn: () => base44.entities.Customer.filter({ store_id: storeId, is_active: true }),
+    queryFn: async () => {
+      const cached = await getAllCachedCustomers(storeId);
+      return (cached || []).filter((c) => c.is_active !== false);
+    },
     initialData: [],
     staleTime: 30_000,
   });
@@ -113,19 +120,23 @@ export default function Today() {
   }, [customers]);
 
   const { data: activity = [] } = useQuery({
-    queryKey: ["today-activity", activeStoreIds.join(",")],
+    queryKey: ["today-activity", storeId],
     queryFn: async () => {
-      const perStore = await Promise.all(
-        activeStoreIds.map(async (sid) => {
-          const rows = await base44.entities.ActivityEvent.list("-created_date", 20);
-          // ActivityEvent is store-scoped in data; still filter defensively.
-          return (rows || []).filter((r) => r.store_id === sid);
-        })
-      );
-      return perStore.flat().sort((a, b) => new Date(b.created_date).getTime() - new Date(a.created_date).getTime()).slice(0, 10);
+      // Base44 ActivityEvent no longer exists. Show recent offline queue actions instead.
+      const rows = await listOfflineQueue(storeId);
+      return (rows || [])
+        .slice()
+        .sort((a, b) => (b.created_at_device || 0) - (a.created_at_device || 0))
+        .slice(0, 10)
+        .map((r) => ({
+          id: r.event_id,
+          created_date: new Date(r.created_at_device || Date.now()).toISOString(),
+          action: r.event_type,
+          status: r.status,
+        }));
     },
     initialData: [],
-    staleTime: 15_000,
+    staleTime: 5_000,
   });
 
   return (
@@ -285,10 +296,11 @@ export default function Today() {
                 <div key={ev.id} className="flex items-start gap-2 py-1.5 border-b border-stone-50 last:border-0">
                   <div className="w-1.5 h-1.5 rounded-full bg-stone-300 mt-1.5 flex-shrink-0" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs text-stone-600 leading-tight">{ev.description}</p>
+                    <p className="text-xs text-stone-600 leading-tight">
+                      {ev.action} <span className="text-[10px] text-stone-400">({ev.status})</span>
+                    </p>
                     <p className="text-[10px] text-stone-400 mt-0.5">
                       {new Date(ev.created_date).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })}
-                      {view === "all" && ev.store_id ? ` • ${ev.store_id}` : ""}
                     </p>
                   </div>
                 </div>

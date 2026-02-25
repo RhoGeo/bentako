@@ -49,7 +49,9 @@ export async function listMembershipsAndStores(user_id: string) {
   const supabase = getServiceClient();
   const { data: memberships, error: merr } = await supabase
     .from("store_memberships")
-    .select("store_membership_id,store_id,role,permission_set_id,overrides_json,is_active")
+    .select(
+      "store_membership_id,store_id,role,permission_set_id,overrides_json,is_active,policy_acknowledged,policy_acknowledged_at",
+    )
     .eq("user_id", user_id)
     .eq("is_active", true);
   if (merr) throw merr;

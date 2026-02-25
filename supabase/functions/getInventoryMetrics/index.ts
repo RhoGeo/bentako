@@ -1,12 +1,17 @@
+import { corsHeaders } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/auth.ts";
 import { supabaseService } from "../_shared/supabase.ts";
-import { requireStoreAccess } from "../_shared/storeAccess.ts";
+import { requireStorePermission } from "../_shared/storeAccess.ts";
 import { mapErrorToResponse } from "../_shared/errors.ts";
 import { jsonFail, jsonOk } from "../_shared/response.ts";
-import { corsHeaders } from "../_shared/cors.ts";
 
 function str(v: unknown) {
   return String(v ?? "").trim();
+}
+
+function int(v: unknown, dflt: number) {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.trunc(n) : dflt;
 }
 
 Deno.serve(async (req) => {
@@ -14,24 +19,23 @@ Deno.serve(async (req) => {
   try {
     const { user } = await requireAuth(req);
     const supabase = supabaseService();
-
     const body = await req.json();
+
     const store_id = str(body?.store_id);
-    const owner_pin_hash = str(body?.owner_pin_hash);
     if (!store_id) return jsonFail(400, "BAD_REQUEST", "store_id required");
-    if (!owner_pin_hash) return jsonFail(400, "BAD_REQUEST", "owner_pin_hash required");
 
-    const membership = await requireStoreAccess({ user_id: user.user_id, store_id });
-    if (membership.role !== "owner") return jsonFail(403, "FORBIDDEN", "Owner only");
+    await requireStorePermission({ user_id: user.user_id, store_id, permission: "reports_access" });
 
-    const { error } = await supabase.rpc("posync_set_owner_pin", {
+    const window_days = int(body?.window_days, 30);
+
+    const { data, error } = await supabase.rpc("posync_inventory_metrics", {
       p_store_id: store_id,
       p_actor_user_id: user.user_id,
-      p_owner_pin_hash: owner_pin_hash,
+      p_window_days: window_days,
     });
     if (error) throw new Error(error.message);
 
-    return jsonOk({ ok: true });
+    return jsonOk(data || {});
   } catch (err) {
     return mapErrorToResponse(err);
   }

@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { base44 } from "@/api/base44Client";
 import { invokeFunction } from "@/api/posyncClient";
 import { createPageUrl } from "@/utils";
 import { Button } from "@/components/ui/button";
@@ -49,10 +48,12 @@ export default function RestockChecklist() {
 
   const { data: productsServer = [] } = useQuery({
     queryKey: ["products-all", storeId],
+    enabled: !!storeId && navigator.onLine,
     queryFn: async () => {
-      const res = await base44.entities.Product.filter({ store_id: storeId, is_active: true });
-      await upsertCachedProducts(res, storeId);
-      return res;
+      const res = await invokeFunction("listProducts", { store_id: storeId, include_parents: true });
+      const rows = res?.data?.products || [];
+      await upsertCachedProducts(rows, storeId);
+      return rows;
     },
     initialData: [],
   });

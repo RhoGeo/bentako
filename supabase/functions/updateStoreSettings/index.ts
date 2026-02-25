@@ -36,14 +36,6 @@ Deno.serve(async (req) => {
     const membership = await requireStoreAccess({ user_id: user.user_id, store_id });
     if (membership.role !== "owner") return jsonFail(403, "FORBIDDEN", "Owner only");
 
-    // Load current store settings.
-    const { data: store, error: serr } = await supabase
-      .from("stores")
-      .select("store_id,store_name,store_settings_json,allow_negative_stock,low_stock_threshold_default")
-      .eq("store_id", store_id)
-      .single();
-    if (serr) throw new Error(serr.message);
-
     const nextStoreName = body?.store_name != null ? str(body.store_name) : null;
     const nextAllowNegative = body?.allow_negative_stock != null ? !!body.allow_negative_stock : null;
     const nextLowStock = body?.low_stock_threshold_default != null ? Number(body.low_stock_threshold_default) : null;
@@ -54,22 +46,17 @@ Deno.serve(async (req) => {
       patch[k] = v;
     }
 
-    const merged = { ...(store.store_settings_json || {}), ...patch };
+    const { data, error: rpcErr } = await supabase.rpc("posync_update_store_settings", {
+      p_store_id: store_id,
+      p_actor_user_id: user.user_id,
+      p_store_name: nextStoreName,
+      p_allow_negative_stock: nextAllowNegative,
+      p_low_stock_threshold_default: Number.isFinite(nextLowStock) ? Math.trunc(nextLowStock) : null,
+      p_patch: patch,
+    });
+    if (rpcErr) throw new Error(rpcErr.message);
 
-    const update: Record<string, any> = { store_settings_json: merged };
-    if (nextStoreName !== null && nextStoreName.length >= 2) update.store_name = nextStoreName;
-    if (nextAllowNegative !== null) update.allow_negative_stock = nextAllowNegative;
-    if (nextLowStock !== null && Number.isFinite(nextLowStock) && nextLowStock >= 0) update.low_stock_threshold_default = nextLowStock;
-
-    const { data: updated, error: uerr } = await supabase
-      .from("stores")
-      .update(update)
-      .eq("store_id", store_id)
-      .select("store_id,store_name,store_settings_json,allow_negative_stock,low_stock_threshold_default,owner_pin_hash")
-      .single();
-    if (uerr) throw new Error(uerr.message);
-
-    return jsonOk({ store_settings: { ...updated.store_settings_json, store_name: updated.store_name, allow_negative_stock: updated.allow_negative_stock, low_stock_threshold_default: updated.low_stock_threshold_default, owner_pin_hash: updated.owner_pin_hash } });
+    return jsonOk({ store_settings: data || {} });
   } catch (err) {
     return mapErrorToResponse(err);
   }

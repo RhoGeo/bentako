@@ -1,8 +1,7 @@
 import React, { useState } from "react";
 import { ArrowLeft, Wallet, Plus, WifiOff, CheckCircle2, Clock, XCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { base44 } from "@/api/base44Client";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,7 +9,6 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import CentavosDisplay from "@/components/shared/CentavosDisplay";
 import { useCurrentStaff } from "@/components/lib/useCurrentStaff";
 import { can, guard } from "@/components/lib/permissions";
-import { auditLog } from "@/components/lib/auditLog";
 import { toast } from "sonner";
 import { useActiveStoreId } from "@/components/lib/activeStore";
 
@@ -23,7 +21,6 @@ const STATUS_CONFIG = {
 
 export default function Payouts() {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const { storeId } = useActiveStoreId();
   const { staffMember, user } = useCurrentStaff(storeId);
   const canView = can(staffMember, "payouts_view");
@@ -38,7 +35,9 @@ export default function Payouts() {
 
   const { data: payouts = [] } = useQuery({
     queryKey: ["payouts", storeId],
-    queryFn: () => base44.entities.Payout.filter({ store_id: storeId }),
+    // This build does not include payout tables in the DB schema.
+    // Keep the page non-crashing and consistent with permissions/UX.
+    queryFn: async () => [],
     enabled: canView,
     initialData: [],
   });
@@ -50,31 +49,7 @@ export default function Payouts() {
   const handleRequest = async () => {
     const { allowed, reason } = guard(staffMember, "payouts_request");
     if (!allowed) { toast.error(reason); return; }
-    if (!isOnline) { toast.error("Need internet to request payout."); return; }
-    const amount = parseFloat(form.amount || "0");
-    if (amount <= 0) { toast.error("Amount must be greater than 0."); return; }
-    if (!form.gcash_number.trim()) { toast.error("GCash number required."); return; }
-    if (!form.gcash_name.trim()) { toast.error("GCash account name required."); return; }
-
-    setSaving(true);
-    const payout = await base44.entities.Payout.create({
-      store_id: storeId,
-      requested_by: user?.email,
-      amount_centavos: Math.round(amount * 100),
-      gcash_number: form.gcash_number,
-      gcash_name: form.gcash_name,
-      status: "pending",
-    });
-    await auditLog("payout_requested", `Payout of ₱${amount.toFixed(2)} requested`, {
-      actor_email: user?.email,
-      amount_centavos: Math.round(amount * 100),
-      reference_id: payout.id,
-    });
-    queryClient.invalidateQueries({ queryKey: ["payouts", storeId] });
-    toast.success("Payout request submitted!");
-    setRequestSheet(false);
-    setForm({ amount: "", gcash_number: "", gcash_name: "" });
-    setSaving(false);
+    toast.error("Payouts module is not enabled in this deployment.");
   };
 
   if (!canView) {

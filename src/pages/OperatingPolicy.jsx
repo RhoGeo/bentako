@@ -5,9 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useCurrentStaff } from "@/components/lib/useCurrentStaff";
 import { auditLog } from "@/components/lib/auditLog";
-import { base44 } from "@/api/base44Client";
+import { invokeFunction } from "@/api/posyncClient";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { useActiveStoreId } from "@/components/lib/activeStore";
 
 const PRINCIPLES = [
   { title: "Retail Truth", desc: "Every transaction is recorded immediately. No sale is 'just memory'. If it wasn't recorded, it didn't happen." },
@@ -86,19 +87,15 @@ const WEEKLY_CHECKLIST = [
 export default function OperatingPolicy() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { staffMember, user } = useCurrentStaff();
-  const [acknowledged, setAcknowledged] = useState(staffMember?.policy_acknowledged || false);
+  const { storeId } = useActiveStoreId();
+  const { staffMember, user } = useCurrentStaff(storeId);
+  const [acknowledged, setAcknowledged] = useState(!!staffMember?.policy_acknowledged);
   const [saving, setSaving] = useState(false);
 
   const handleAcknowledge = async () => {
     if (acknowledged) return;
     setSaving(true);
-    if (staffMember?.id) {
-      await base44.entities.StaffMember.update(staffMember.id, {
-        policy_acknowledged: true,
-        policy_acknowledged_at: new Date().toISOString(),
-      });
-    }
+    await invokeFunction("acknowledgePolicy", { store_id: storeId });
     await auditLog("policy_acknowledged", `Policy acknowledged by ${user?.email}`, {
       actor_email: user?.email,
       metadata: { role: staffMember?.role, acknowledged_at: new Date().toISOString() },
@@ -141,7 +138,9 @@ export default function OperatingPolicy() {
                 {acknowledged ? "Policy Acknowledged ✓" : "Please read and acknowledge this policy"}
               </p>
               <p className={`text-xs mt-0.5 ${acknowledged ? "text-emerald-600" : "text-amber-600"}`}>
-                {acknowledged ? `Acknowledged on ${new Date().toLocaleDateString("en-PH")}` : "Tap below after reading."}
+                {acknowledged
+                  ? `Acknowledged on ${new Date(staffMember?.policy_acknowledged_at || Date.now()).toLocaleDateString("en-PH")}`
+                  : "Tap below after reading."}
               </p>
             </div>
           </div>

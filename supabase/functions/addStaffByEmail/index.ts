@@ -28,38 +28,18 @@ Deno.serve(async (req) => {
 
     await requireStorePermission({ user_id: user.user_id, store_id, permission: "staff_manage" });
 
-    const { data: users, error: uerr } = await supabase
-      .from("user_accounts")
-      .select("user_id,full_name,email")
-      .eq("email_canonical", user_email)
-      .limit(1);
-    if (uerr) throw new Error(uerr.message);
-    const target = users?.[0];
-    if (!target) return jsonFail(404, "USER_NOT_FOUND", "User not found. They must sign up first.");
-
-    const { data: existing, error: exErr } = await supabase
-      .from("store_memberships")
-      .select("store_membership_id")
-      .eq("store_id", store_id)
-      .eq("user_id", target.user_id)
-      .maybeSingle();
-    if (exErr) throw new Error(exErr.message);
-
-    if (existing?.store_membership_id) {
-      const { error: updErr } = await supabase
-        .from("store_memberships")
-        .update({ role, is_active: true })
-        .eq("store_membership_id", existing.store_membership_id);
-      if (updErr) throw new Error(updErr.message);
-    } else {
-      const { error: insErr } = await supabase.from("store_memberships").insert({
-        store_id,
-        user_id: target.user_id,
-        role,
-        is_active: true,
-        created_by: user.user_id,
-      });
-      if (insErr) throw new Error(insErr.message);
+    const { error: rpcErr } = await supabase.rpc("posync_add_staff_by_email", {
+      p_store_id: store_id,
+      p_actor_user_id: user.user_id,
+      p_user_email: user_email,
+      p_role: role,
+    });
+    if (rpcErr) {
+      // Normalize not-found into 404
+      if ((rpcErr.message || "").toLowerCase().includes("user not found")) {
+        return jsonFail(404, "USER_NOT_FOUND", "User not found. They must sign up first.");
+      }
+      throw new Error(rpcErr.message);
     }
 
     return jsonOk({ ok: true });

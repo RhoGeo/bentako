@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { base44 } from "@/api/base44Client";
+import { invokeFunction } from "@/api/posyncClient";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,13 +43,14 @@ export default function RestockItemDrawer({ open, onClose, storeId, settings, pr
     queryKey: ["stock-ledger-restock", storeId, productId],
     enabled: !!open && !!storeId && !!productId,
     queryFn: async () => {
-      const rows = await base44.entities.StockLedger.filter({ store_id: storeId, product_id: productId, reason: "restock" });
-      const sorted = (rows || []).slice().sort((a, b) => {
-        const ta = new Date(a.created_at || a.created_date || 0).getTime();
-        const tb = new Date(b.created_at || b.created_date || 0).getTime();
-        return tb - ta;
+      if (!navigator.onLine) return [];
+      const res = await invokeFunction("listStockLedger", {
+        store_id: storeId,
+        product_id: productId,
+        reason: "restock",
+        limit: 30,
       });
-      return sorted.slice(0, 30);
+      return res?.data?.rows || [];
     },
   });
 
