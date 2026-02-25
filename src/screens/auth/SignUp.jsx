@@ -12,6 +12,12 @@ function unwrap(res) {
   return res?.data?.data || res?.data || res;
 }
 
+function extractApiErrorMessage(err) {
+  const d = err?.response?.data || err?.data;
+  const msg = d?.error?.message || d?.message;
+  return msg || err?.message || "Sign up failed";
+}
+
 function normalizeSession(session) {
   if (!session) return null;
   const exp = session.access_expires_at || session.expires_at;
@@ -95,7 +101,7 @@ export default function SignUp() {
 
       nav("/welcome", { replace: true, state: details });
     } catch (err) {
-      const msg = err?.message || "Sign up failed";
+      const msg = extractApiErrorMessage(err);
       setError(msg);
       toast.error(msg);
     } finally {

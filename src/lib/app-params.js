@@ -35,10 +35,14 @@ const getAppParamValue = (paramName, { defaultValue = undefined, removeFromUrl =
 }
 
 const getAppParams = () => {
-	if (getAppParamValue("clear_access_token") === 'true') {
-		storage.removeItem('base44_access_token');
-		storage.removeItem('token');
-	}
+    // AUTH RULE: do not use Base44 built-in auth tokens.
+    // Clear any legacy Base44 tokens to prevent automatic /entities/User/me calls.
+    try {
+        storage.removeItem('base44_access_token');
+        storage.removeItem('base44_refresh_token');
+        storage.removeItem('token');
+        storage.removeItem('refresh_token');
+    } catch (_e) {}
 	return {
 		appId: getAppParamValue("app_id", { defaultValue: import.meta.env.VITE_BASE44_APP_ID }),
 		token: getAppParamValue("access_token", { removeFromUrl: true }),
