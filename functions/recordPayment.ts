@@ -4,12 +4,13 @@ import { requireActiveStaff } from "./_lib/staff.ts";
 import { requirePermission } from "./_lib/guard.ts";
 import { startIdempotentOperation, markIdempotentApplied } from "./_lib/idempotency.ts";
 import { assertCentavosInt } from "./_lib/money.ts";
+import { requireAuth } from "./_lib/auth.ts";
+import { logActivityEvent } from "./_lib/activity.ts";
 
 Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
   try {
-    const user = await base44.auth.me();
-    if (!user) return jsonFail(401, "UNAUTHORIZED", "Unauthorized");
+    const { user } = await requireAuth(base44, req);
 
     const body = await req.json();
     const store_id = body?.store_id;
@@ -60,6 +61,19 @@ Deno.serve(async (req) => {
 
     const result = { payment_id: paymentRow.id, customer_id, new_balance_centavos };
     await markIdempotentApplied(base44, record.id, result);
+
+    await logActivityEvent(base44, {
+      store_id,
+      event_type: "customer_payment_recorded",
+      description: "Customer payment recorded",
+      entity_id: paymentRow.id,
+      user_id: user.user_id,
+      actor_email: user.email,
+      device_id,
+      amount_centavos,
+      metadata_json: { customer_id, payment_request_id, method: payment.method },
+    });
+
     return jsonOk(result);
   } catch (err) {
     return jsonFailFromError(err);

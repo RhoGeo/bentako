@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
+import { invokeFunction } from "@/api/posyncClient";
 import { createPageUrl } from "@/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,8 +15,8 @@ import { toast } from "sonner";
 import OwnerPinModal from "@/components/global/OwnerPinModal";
 import { useActiveStoreId } from "@/components/lib/activeStore";
 import { useStoreSettings } from "@/components/lib/useStoreSettings";
-import { enqueueOfflineEvent, patchCachedProductSnapshot, upsertCachedProducts, getAllCachedProducts } from "@/components/lib/db";
-import { generateEventId, getDeviceId } from "@/components/lib/deviceId";
+import { enqueueOfflineEvent, patchCachedProductSnapshot, upsertCachedProducts, getAllCachedProducts } from "@/lib/db";
+import { generateEventId, getDeviceId } from "@/lib/ids/deviceId";
 import { getEffectiveThresholds, getInventoryTag, getStockQty, normalizeForMatch } from "@/components/inventory/inventoryRules";
 
 function pesosToCentavos(pesosStr) {
@@ -68,7 +69,7 @@ export default function RestockChecklist() {
     queryKey: ["inventory-metrics", storeId],
     enabled: !!storeId && navigator.onLine,
     queryFn: async () => {
-      const r = await base44.functions.invoke("getInventoryMetrics", { store_id: storeId, window_days: 30 });
+      const r = await invokeFunction("getInventoryMetrics", { store_id: storeId, window_days: 30 });
       return r?.data || r?.data?.data;
     },
     staleTime: 60_000,

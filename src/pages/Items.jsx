@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
+import { invokeFunction } from "@/api/posyncClient";
 import { createPageUrl } from "@/utils";
 import { toast } from "sonner";
 
@@ -17,12 +18,12 @@ import { Plus, Package, TrendingDown, TrendingUp, AlertTriangle, XCircle } from 
 
 import { useActiveStoreId } from "@/components/lib/activeStore";
 import { useStoreSettings } from "@/components/lib/useStoreSettings";
-import { normalizeBarcode, normalizeBarcode as normalizeBc } from "@/components/lib/deviceId";
+import { normalizeBarcode, normalizeBarcode as normalizeBc } from "@/lib/ids/deviceId";
 import {
   getCachedProductByBarcode,
   getAllCachedProducts,
   upsertCachedProducts,
-} from "@/components/lib/db";
+} from "@/lib/db";
 
 import { getInventoryTag, getStockQty, normalizeForMatch, getEffectiveThresholds } from "@/components/inventory/inventoryRules";
 import InventoryTagBadge from "@/components/inventory/InventoryTagBadge";
@@ -103,7 +104,7 @@ export default function Items() {
     queryKey: ["inventory-metrics", storeId],
     enabled: !!storeId && navigator.onLine,
     queryFn: async () => {
-      const r = await base44.functions.invoke("getInventoryMetrics", { store_id: storeId, window_days: 30 });
+      const r = await invokeFunction("getInventoryMetrics", { store_id: storeId, window_days: 30 });
       return r?.data || r?.data?.data;
     },
     staleTime: 60_000,
@@ -130,7 +131,7 @@ export default function Items() {
 
       if (navigator.onLine) {
         try {
-          const res = await base44.functions.invoke("barcodeLookup", { store_id: storeId, barcode: bc });
+          const res = await invokeFunction("barcodeLookup", { store_id: storeId, barcode: bc });
           return res?.data?.product || res?.data?.data?.product || null;
         } catch (_e) {
           return null;
@@ -146,9 +147,16 @@ export default function Items() {
       const bc = normalizeBarcode(val);
       if (!bc) return;
       const p = await lookupBarcode(bc);
-      if (p && autoAddOnEnter) {
-        navigate(createPageUrl("ProductForm") + `?id=${p.id}`);
-        setSearch("");
+      if (p) {
+        if (autoAddOnEnter) {
+          navigate(createPageUrl("ProductForm") + `?id=${p.id}`);
+          setSearch("");
+          return;
+        }
+        // If Auto-add is OFF, treat Enter as a barcode search.
+        setSearch(bc);
+        setDebouncedSearch(bc);
+        toast.message("Found item — showing in list", { duration: 1100 });
         return;
       }
       toast.warning("Barcode not found", { duration: 1400 });
@@ -427,6 +435,11 @@ export default function Items() {
             return { found: true, handled: true, label: p.name };
           }
           return { found: false };
+        }}
+        onNotFound={(barcode) => {
+          if (!navigator.onLine) {
+            toast.info("Not in offline catalog. Connect to internet to add this item.", { duration: 1600 });
+          }
         }}
         onAddNew={(barcode) => {
           setScannerOpen(false);

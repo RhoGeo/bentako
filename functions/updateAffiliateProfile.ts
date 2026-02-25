@@ -3,6 +3,7 @@
  */
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.6";
 import { ok, fail } from "./_response.ts";
+import { requireAuth } from "./_lib/auth.ts";
 
 function cleanPhone(v: any) {
   const s = String(v || "").trim();
@@ -12,8 +13,7 @@ function cleanPhone(v: any) {
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-    const user = await base44.auth.me();
-    if (!user) return fail("UNAUTHORIZED", "Unauthorized", null, 401);
+    const { user } = await requireAuth(base44, req);
 
     const body = await req.json();
     const { gcash_number, gcash_name } = body || {};

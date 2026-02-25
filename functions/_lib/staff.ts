@@ -10,6 +10,30 @@ export type StaffMemberRecord = {
 
 export async function requireActiveStaff(base44: any, store_id: string, userEmail: string, userRole?: string, userName?: string): Promise<StaffMemberRecord> {
   if (!userEmail) throw Object.assign(new Error("Unauthorized"), { code: "UNAUTHORIZED" });
+  // Prefer StoreMembership (required by POSync) when available.
+  try {
+    const memberships = await base44.asServiceRole.entities.StoreMembership.filter({
+      store_id,
+      user_email: userEmail,
+      is_active: true,
+    });
+    const m = memberships?.[0];
+    if (m) {
+      const role = String(m.role || m.store_role || "cashier").toLowerCase();
+      return {
+        id: m.id,
+        store_id,
+        user_email: userEmail,
+        user_name: userName || m.user_name,
+        role: role === "owner" ? "owner" : role === "manager" ? "manager" : "cashier",
+        overrides_json: m.overrides_json || {},
+        is_active: true,
+      };
+    }
+  } catch (_e) {
+    // ignore
+  }
+
   // NOTE: Some deployments may not have StaffMember fully seeded yet.
   // We bootstrap the first active user in a store as owner if no staff exist.
   let results: any[] = [];

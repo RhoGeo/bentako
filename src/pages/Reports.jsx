@@ -1,16 +1,15 @@
 import React, { useMemo, useState } from "react";
-import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import CentavosDisplay from "@/components/shared/CentavosDisplay";
 import {
   TrendingUp,
   ShoppingBag,
   Package,
-  AlertTriangle,
   Users,
   BarChart3,
   ArrowRight,
   User,
+  Layers,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,235 +19,93 @@ import { createPageUrl } from "@/utils";
 import { useActiveStoreId } from "@/components/lib/activeStore";
 import { useStoresForUser } from "@/components/lib/useStores";
 import { useCurrentStaff } from "@/components/lib/useCurrentStaff";
-import { useStoreSettings } from "@/components/lib/useStoreSettings";
 import { can, guard } from "@/components/lib/permissions";
+import { invokeFunction } from "@/api/posyncClient";
 
 const DATE_CHIPS = ["Today", "Week", "Month"];
 
 function rangeForChip(chip) {
   const now = new Date();
-  const to = new Date(now.getTime() + 60 * 60 * 1000); // buffer
+  const to = new Date(now.getTime() + 60 * 60 * 1000);
   const from = new Date(now);
-  if (chip === "Today") {
-    from.setHours(0, 0, 0, 0);
-  } else if (chip === "Week") {
-    from.setDate(from.getDate() - 7);
-  } else {
-    from.setDate(from.getDate() - 30);
-  }
+  if (chip === "Today") from.setHours(0, 0, 0, 0);
+  else if (chip === "Week") from.setDate(from.getDate() - 7);
+  else from.setDate(from.getDate() - 30);
   return { from: from.toISOString(), to: to.toISOString() };
-}
-
-function ageDaysFrom(dateStr) {
-  if (!dateStr) return null;
-  const t = new Date(dateStr).getTime();
-  if (!Number.isFinite(t)) return null;
-  const diff = Date.now() - t;
-  return Math.max(0, Math.floor(diff / (24 * 60 * 60 * 1000)));
 }
 
 export default function Reports() {
   const { storeId } = useActiveStoreId();
   const { stores } = useStoresForUser();
   const { staffMember } = useCurrentStaff(storeId);
-  const { settings } = useStoreSettings(storeId);
 
   const [dateRange, setDateRange] = useState("Today");
   const [view, setView] = useState("store"); // store | all
   const [drill, setDrill] = useState(null); // {title, kind}
 
-  const canCombined = stores.length > 1 && staffMember?.role === "owner";
-  const storeIds = useMemo(() => {
-    if (view === "all" && canCombined) return stores.map((s) => s.store_id);
-    return [storeId];
-  }, [view, canCombined, stores, storeId]);
-
-  const { from, to } = useMemo(() => rangeForChip(dateRange), [dateRange]);
   const canReports = can(staffMember, "reports_access");
   const canDrill = can(staffMember, "reports_drilldowns");
   const canFinancial = can(staffMember, "financial_visibility");
 
-  const { data: reportByStore = [], isLoading: reportsLoading, error: reportErr } = useQuery({
-    queryKey: ["report", storeIds.join(","), from, to],
-    enabled: canReports,
+  const canCombined = (stores || []).length > 1 && String(staffMember?.role || "").toLowerCase() === "owner";
+
+  const storeIds = useMemo(() => {
+    if (view === "all" && canCombined) return (stores || []).map((s) => s.id || s.store_id).filter(Boolean);
+    return [storeId].filter(Boolean);
+  }, [view, canCombined, stores, storeId]);
+
+  const { from, to } = useMemo(() => rangeForChip(dateRange), [dateRange]);
+
+  const { data: report, isLoading: reportsLoading } = useQuery({
+    queryKey: ["report-bundle", storeIds.join(","), from, to],
+    enabled: canReports && storeIds.length > 0,
     staleTime: 30_000,
     queryFn: async () => {
-      const results = await Promise.all(
-        storeIds.map(async (sid) => {
-          const res = await base44.functions.invoke("getReportData", { store_id: sid, from, to });
-          return { store_id: sid, summary: res?.data?.summary || {}, top_products: res?.data?.top_products || [] };
-        })
-      );
-      return results;
+      const payload = storeIds.length === 1
+        ? { store_id: storeIds[0], from, to }
+        : { store_ids: storeIds, from, to };
+      const res = await invokeFunction("getReportData", payload);
+      return res?.data?.data || res?.data || res;
     },
-    initialData: [],
+    initialData: null,
   });
 
-  const summary = useMemo(() => {
-    const agg = {
-      sales_count: 0,
-      revenue_centavos: 0,
-      due_centavos: 0,
-      gross_profit_centavos: 0,
-    };
-    for (const r of reportByStore) {
-      const s = r.summary || {};
-      agg.sales_count += Number(s.sales_count || 0);
-      agg.revenue_centavos += Number(s.revenue_centavos || 0);
-      agg.due_centavos += Number(s.due_centavos || 0);
-      agg.gross_profit_centavos += Number(s.gross_profit_centavos || 0);
-    }
-    return agg;
-  }, [reportByStore]);
-
-  const topProducts = useMemo(() => {
-    const map = new Map();
-    for (const r of reportByStore) {
-      for (const p of r.top_products || []) {
-        const id = p.product_id;
-        const prev = map.get(id) || { qty: 0, revenue_centavos: 0, profit_centavos: 0 };
-        map.set(id, {
-          qty: prev.qty + Number(p.qty || 0),
-          revenue_centavos: prev.revenue_centavos + Number(p.revenue_centavos || 0),
-          profit_centavos: prev.profit_centavos + Number(p.profit_centavos || 0),
-        });
-      }
-    }
-    return Array.from(map.entries())
-      .map(([product_id, v]) => ({ product_id, ...v }))
-      .sort((a, b) => b.revenue_centavos - a.revenue_centavos)
-      .slice(0, 10);
-  }, [reportByStore]);
-
-  const marginPct = summary.revenue_centavos > 0 ? ((summary.gross_profit_centavos / summary.revenue_centavos) * 100).toFixed(1) : "0.0";
-
-  // Inventory
-  const invStoreIds = view === "all" && canCombined ? storeIds : [storeId];
-  const { data: products = [] } = useQuery({
-    queryKey: ["report-products", invStoreIds.join(",")],
-    queryFn: async () => {
-      const perStore = await Promise.all(
-        invStoreIds.map(async (sid) => {
-          const rows = await base44.entities.Product.filter({ store_id: sid, product_type: "single", is_active: true });
-          return (rows || []).map((p) => ({ ...p, __store_id: sid }));
-        })
-      );
-      return perStore.flat();
-    },
-    initialData: [],
-    staleTime: 30_000,
-  });
-
-  const inv = useMemo(() => {
-    const defaultThresh = Number(settings?.low_stock_threshold_default || 5);
-    const sellable = (products || []).filter((p) => p.is_active && p.product_type === "single");
-    const tracked = sellable.filter((p) => p.track_stock);
-    const low = tracked.filter((p) => {
-      const qty = Number(p.stock_quantity ?? p.stock_qty ?? 0);
-      const thresh = Number(p.low_stock_threshold ?? defaultThresh);
-      return qty > 0 && qty <= thresh;
-    });
-    const out = tracked.filter((p) => Number(p.stock_quantity ?? p.stock_qty ?? 0) === 0);
-    return { sellableCount: sellable.length, trackedCount: tracked.length, lowCount: low.length, outCount: out.length };
-  }, [products, settings]);
-
-  // Due aging buckets
-  const dueStoreIds = view === "all" && canCombined ? storeIds : [storeId];
-  const { data: customers = [] } = useQuery({
-    queryKey: ["report-customers", dueStoreIds.join(",")],
-    queryFn: async () => {
-      const perStore = await Promise.all(
-        dueStoreIds.map(async (sid) => {
-          const rows = await base44.entities.Customer.filter({ store_id: sid, is_active: true });
-          return (rows || []).map((c) => ({ ...c, __store_id: sid }));
-        })
-      );
-      return perStore.flat();
-    },
-    initialData: [],
-    staleTime: 30_000,
-  });
-
-  const dueAging = useMemo(() => {
-    const buckets = { "0_7": 0, "8_30": 0, "31_plus": 0 };
-    const dueCustomers = (customers || []).filter((c) => Number(c.balance_due_centavos || 0) > 0);
-    for (const c of dueCustomers) {
-      const age =
-        ageDaysFrom(c.last_payment_date) ??
-        ageDaysFrom(c.last_transaction_date) ??
-        ageDaysFrom(c.updated_date) ??
-        ageDaysFrom(c.created_date) ??
-        0;
-      if (age <= 7) buckets["0_7"] += Number(c.balance_due_centavos || 0);
-      else if (age <= 30) buckets["8_30"] += Number(c.balance_due_centavos || 0);
-      else buckets["31_plus"] += Number(c.balance_due_centavos || 0);
-    }
-    return buckets;
-  }, [customers]);
-
-  // Cashier performance (requires server sale fields; fetch lazily and gate)
-  const { data: cashierPerf = [] } = useQuery({
-    queryKey: ["cashier-performance", storeId, from, to],
-    enabled: canReports && canFinancial,
-    staleTime: 30_000,
-    queryFn: async () => {
-      const sales = await base44.entities.Sale.filter({ store_id: storeId });
-      const inRange = (sales || []).filter((s) => {
-        if (s.status !== "completed" && s.status !== "due") return false;
-        const t = new Date(s.sale_date || s.created_date || s.created_at).getTime();
-        return t >= new Date(from).getTime() && t < new Date(to).getTime();
-      });
-      const by = new Map();
-      for (const s of inRange) {
-        const key = s.cashier_email || s.created_by_email || "unknown";
-        const prev = by.get(key) || { cashier: key, tx: 0, revenue_centavos: 0 };
-        by.set(key, {
-          cashier: key,
-          tx: prev.tx + 1,
-          revenue_centavos: prev.revenue_centavos + Number(s.total_centavos || 0),
-        });
-      }
-      return Array.from(by.values()).sort((a, b) => b.revenue_centavos - a.revenue_centavos);
-    },
-    initialData: [],
-  });
-
-  const avgBasket = summary.sales_count > 0 ? Math.round(summary.revenue_centavos / summary.sales_count) : 0;
-
-  const { data: salesDrill = [] } = useQuery({
-    queryKey: ["sales-drill", storeIds.join(","), from, to],
-    enabled: canReports && canDrill && drill?.kind === "sales",
+  const { data: drillData } = useQuery({
+    queryKey: ["report-drill", storeIds.join(","), from, to, drill?.kind],
+    enabled: canReports && canDrill && !!drill && storeIds.length > 0,
     staleTime: 10_000,
     queryFn: async () => {
-      const perStore = await Promise.all(
-        storeIds.map(async (sid) => {
-          const sales = await base44.entities.Sale.filter({ store_id: sid });
-          const fromT = new Date(from).getTime();
-          const toT = new Date(to).getTime();
-          return (sales || [])
-            .filter((s) => (s.status === "completed" || s.status === "due") )
-            .filter((s) => {
-              const t = new Date(s.sale_date || s.created_date || s.created_at).getTime();
-              return t >= fromT && t < toT;
-            })
-            .map((s) => ({
-              id: s.id,
-              store_id: sid,
-              sale_date: s.sale_date || s.created_date || s.created_at,
-              total_centavos: Number(s.total_centavos || 0),
-              status: s.status,
-              cashier_email: s.cashier_email || s.created_by_email || "unknown",
-              client_tx_id: s.client_tx_id,
-            }));
-        })
-      );
-      return perStore
-        .flat()
-        .sort((a, b) => new Date(b.sale_date).getTime() - new Date(a.sale_date).getTime())
-        .slice(0, 100);
+      const payload = storeIds.length === 1
+        ? { store_id: storeIds[0], from, to, include_drilldowns: true }
+        : { store_ids: storeIds, from, to, include_drilldowns: true };
+      const res = await invokeFunction("getReportData", payload);
+      return res?.data?.data || res?.data || res;
     },
-    initialData: [],
+    initialData: null,
   });
+
+  const summary = report?.data?.summary || report?.summary || {};
+  const topProducts = report?.data?.top_products || report?.top_products || [];
+  const inventory = report?.data?.inventory || report?.inventory || {};
+  const due = report?.data?.due_aging || report?.due_aging || {};
+  const perStore = report?.data?.per_store || report?.per_store || [];
+
+  const avgBasket = Number(summary.avg_basket_centavos || 0);
+  const marginPct = Number(summary.revenue_centavos || 0) > 0
+    ? ((Number(summary.gross_profit_centavos || 0) / Number(summary.revenue_centavos || 0)) * 100).toFixed(1)
+    : "0.0";
+
+  const salesRecentByStore = drillData?.data?.drilldowns?.per_store_sales_recent || drillData?.drilldowns?.per_store_sales_recent || [];
+  const salesDrill = useMemo(() => {
+    if (!drill || drill.kind !== "sales") return [];
+    const flat = [];
+    for (const s of salesRecentByStore || []) {
+      for (const row of s.sales_recent || []) {
+        flat.push({ ...row, store_id: s.store_id });
+      }
+    }
+    return flat.sort((a, b) => new Date(b.sale_date).getTime() - new Date(a.sale_date).getTime());
+  }, [drill, salesRecentByStore]);
 
   if (!canReports) {
     const msg = guard(staffMember, "reports_access").reason;
@@ -268,66 +125,54 @@ export default function Reports() {
 
   return (
     <div className="px-4 py-5 pb-24 space-y-4">
-      {/* Store/All toggle */}
-      {canCombined && (
+      {/* Header controls */}
+      <div className="flex items-center justify-between">
         <div className="flex gap-2">
-          <button
-            onClick={() => setView("store")}
-            className={`px-4 py-2 rounded-full text-xs font-semibold border ${
-              view === "store" ? "bg-blue-600 text-white border-blue-600" : "bg-white text-stone-600 border-stone-200"
-            }`}
-          >
-            This Store
-          </button>
-          <button
-            onClick={() => setView("all")}
-            className={`px-4 py-2 rounded-full text-xs font-semibold border ${
-              view === "all" ? "bg-blue-600 text-white border-blue-600" : "bg-white text-stone-600 border-stone-200"
-            }`}
-          >
-            All Stores
-          </button>
+          {DATE_CHIPS.map((chip) => (
+            <Button
+              key={chip}
+              size="sm"
+              variant={dateRange === chip ? "default" : "outline"}
+              className="h-9"
+              onClick={() => setDateRange(chip)}
+            >
+              {chip}
+            </Button>
+          ))}
         </div>
-      )}
-
-      {/* Date chips */}
-      <div className="flex gap-2">
-        {DATE_CHIPS.map((chip) => (
-          <button
-            key={chip}
-            onClick={() => setDateRange(chip)}
-            className={`px-4 py-2 rounded-full text-xs font-semibold transition-all no-select touch-target ${
-              dateRange === chip
-                ? "bg-blue-600 text-white shadow-md"
-                : "bg-white text-stone-600 border border-stone-200"
-            }`}
+        {canCombined && (
+          <Button
+            size="sm"
+            variant={view === "all" ? "default" : "outline"}
+            className="h-9"
+            onClick={() => setView(view === "all" ? "store" : "all")}
           >
-            {chip}
-          </button>
-        ))}
+            <Layers className="w-4 h-4 mr-2" /> {view === "all" ? "All Stores" : "This Store"}
+          </Button>
+        )}
       </div>
 
-      {/* Sales Summary */}
+      {/* Sales summary */}
       <Card>
         <CardHeader className="pb-2 pt-4 px-4">
           <CardTitle className="text-sm flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-emerald-600" />Sales Summary
+            <TrendingUp className="w-4 h-4 text-blue-600" />Sales Summary
           </CardTitle>
-          <p className="text-[10px] text-stone-400">Total benta sa napiling date range.</p>
+          <p className="text-[10px] text-stone-400">{dateRange} • {view === "all" ? "Combined" : "This store"}</p>
         </CardHeader>
         <CardContent className="px-4 pb-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
               <p className="text-[10px] text-stone-400 uppercase">Gross Sales</p>
               {canFinancial ? (
-                <CentavosDisplay centavos={summary.revenue_centavos} size="lg" className="text-stone-800" />
+                <CentavosDisplay centavos={Number(summary.revenue_centavos || 0)} size="lg" className="text-stone-800" />
               ) : (
                 <p className="text-xl font-bold text-stone-400">Hidden</p>
               )}
             </div>
             <div>
               <p className="text-[10px] text-stone-400 uppercase">Transactions</p>
-              <p className="text-xl font-bold text-stone-800">{reportsLoading ? "…" : summary.sales_count}</p>
+              <p className="text-xl font-bold text-stone-800">{reportsLoading ? "…" : Number(summary.sales_count || 0)}</p>
             </div>
             <div>
               <p className="text-[10px] text-stone-400 uppercase">Avg Basket</p>
@@ -369,7 +214,7 @@ export default function Reports() {
                   <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-bold flex items-center justify-center flex-shrink-0">
                     {i + 1}
                   </span>
-                  <span className="text-sm text-stone-700 flex-1 truncate">{p.product_id}</span>
+                  <span className="text-sm text-stone-700 flex-1 truncate">{p.product_name || p.product_id}</span>
                   <span className="text-xs text-stone-400">{p.qty} sold</span>
                   {canFinancial && <CentavosDisplay centavos={p.revenue_centavos} size="xs" className="text-stone-600" />}
                 </div>
@@ -389,7 +234,7 @@ export default function Reports() {
         </CardContent>
       </Card>
 
-      {/* Gross Profit (permission gated) */}
+      {/* Gross Profit */}
       <Card>
         <CardHeader className="pb-2 pt-4 px-4">
           <CardTitle className="text-sm flex items-center gap-2">
@@ -400,7 +245,7 @@ export default function Reports() {
         <CardContent className="px-4 pb-4">
           {canFinancial ? (
             <div className="flex items-end gap-3">
-              <CentavosDisplay centavos={summary.gross_profit_centavos} size="xl" className="text-emerald-700" />
+              <CentavosDisplay centavos={Number(summary.gross_profit_centavos || 0)} size="xl" className="text-emerald-700" />
               <span className="text-sm font-medium text-stone-400 mb-0.5">{marginPct}% margin</span>
             </div>
           ) : (
@@ -409,7 +254,7 @@ export default function Reports() {
         </CardContent>
       </Card>
 
-      {/* Inventory Health (store-only accurate) */}
+      {/* Inventory */}
       <Card>
         <CardHeader className="pb-2 pt-4 px-4">
           <CardTitle className="text-sm flex items-center gap-2">
@@ -421,29 +266,30 @@ export default function Reports() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <p className="text-[10px] text-stone-400 uppercase">Sellable Items</p>
-              <p className="text-xl font-bold text-stone-800">{inv.sellableCount}</p>
+              <p className="text-xl font-bold text-stone-800">{Number(inventory.sellable_count || 0)}</p>
             </div>
             <div>
               <p className="text-[10px] text-stone-400 uppercase">Tracked Items</p>
-              <p className="text-xl font-bold text-stone-800">{inv.trackedCount}</p>
+              <p className="text-xl font-bold text-stone-800">{Number(inventory.tracked_count || 0)}</p>
             </div>
             <div>
               <p className="text-[10px] text-stone-400 uppercase">Low Stock</p>
-              <p className="text-xl font-bold text-amber-600">{inv.lowCount}</p>
+              <p className="text-xl font-bold text-amber-600">{Number(inventory.low_stock_count || 0)}</p>
             </div>
             <div>
               <p className="text-[10px] text-stone-400 uppercase">Out of Stock</p>
-              <p className="text-xl font-bold text-red-600">{inv.outCount}</p>
+              <p className="text-xl font-bold text-red-600">{Number(inventory.out_of_stock_count || 0)}</p>
             </div>
           </div>
           <div className="flex gap-2 mt-3">
-            <Link to={createPageUrl("Items") + "?filter=low_stock"} className="flex-1">
-              <Button variant="outline" className="w-full h-9 text-xs">View Low Stocks</Button>
-            </Link>
-            <Link to={createPageUrl("Items") + "?filter=out_of_stock"} className="flex-1">
-              <Button variant="outline" className="w-full h-9 text-xs">View Out of Stock</Button>
-            </Link>
+            <Button variant="outline" className="flex-1 h-9 text-xs" onClick={() => setDrill({ kind: "low_stock", title: "Low Stock Items" })} disabled={!canDrill}>
+              View Low Stocks
+            </Button>
+            <Button variant="outline" className="flex-1 h-9 text-xs" onClick={() => setDrill({ kind: "out_of_stock", title: "Out of Stock Items" })} disabled={!canDrill}>
+              View Out of Stock
+            </Button>
           </div>
+          {!canDrill && <p className="text-[11px] text-stone-400 mt-2">{guard(staffMember, "reports_drilldowns").reason}</p>}
         </CardContent>
       </Card>
 
@@ -453,26 +299,29 @@ export default function Reports() {
           <CardTitle className="text-sm flex items-center gap-2">
             <Users className="w-4 h-4 text-red-500" />Due Aging
           </CardTitle>
-          <p className="text-[10px] text-stone-400">Utang buckets (this store).</p>
+          <p className="text-[10px] text-stone-400">Utang buckets</p>
         </CardHeader>
         <CardContent className="px-4 pb-4">
           <div className="grid grid-cols-3 gap-2">
-            <div className="bg-stone-50 rounded-xl p-3">
-              <p className="text-[10px] text-stone-500">0–7 days</p>
-              <CentavosDisplay centavos={dueAging["0_7"]} size="sm" className="text-stone-700" />
-            </div>
-            <div className="bg-stone-50 rounded-xl p-3">
-              <p className="text-[10px] text-stone-500">8–30 days</p>
-              <CentavosDisplay centavos={dueAging["8_30"]} size="sm" className="text-stone-700" />
-            </div>
-            <div className="bg-stone-50 rounded-xl p-3">
-              <p className="text-[10px] text-stone-500">31+ days</p>
-              <CentavosDisplay centavos={dueAging["31_plus"]} size="sm" className="text-stone-700" />
-            </div>
+            {[
+              { k: "0_7", label: "0–7" },
+              { k: "8_30", label: "8–30" },
+              { k: "31_plus", label: "31+" },
+            ].map((b) => (
+              <button
+                key={b.k}
+                className="bg-stone-50 rounded-xl p-3 text-left"
+                onClick={() => canDrill && setDrill({ kind: "due_customers", title: `Due Customers (${b.label} days)`, bucket: b.k })}
+                disabled={!canDrill}
+              >
+                <p className="text-[10px] text-stone-500">{b.label} days</p>
+                <CentavosDisplay centavos={Number(due?.buckets_centavos?.[b.k] || 0)} size="sm" className="text-stone-700" />
+              </button>
+            ))}
           </div>
           <Link to={createPageUrl("CustomersDue")}>
             <Button variant="ghost" size="sm" className="w-full mt-2 text-xs text-stone-500 h-8">
-              View due customers <ArrowRight className="w-3 h-3 ml-1" />
+              Open Due Customers screen <ArrowRight className="w-3 h-3 ml-1" />
             </Button>
           </Link>
         </CardContent>
@@ -484,22 +333,26 @@ export default function Reports() {
           <CardTitle className="text-sm flex items-center gap-2">
             <User className="w-4 h-4 text-stone-500" />Cashier Performance
           </CardTitle>
-          <p className="text-[10px] text-stone-400">Permission gated (financial visibility).</p>
+          <p className="text-[10px] text-stone-400">Permission gated (financial visibility)</p>
         </CardHeader>
         <CardContent className="px-4 pb-4">
           {canFinancial ? (
-            cashierPerf.length === 0 ? (
-              <p className="text-xs text-stone-400 py-2">No sales yet.</p>
+            storeIds.length > 1 ? (
+              <p className="text-xs text-stone-400">Select a store to view cashier performance.</p>
             ) : (
-              <div className="space-y-2">
-                {cashierPerf.slice(0, 5).map((c) => (
-                  <div key={c.cashier} className="flex items-center justify-between py-1.5">
-                    <span className="text-xs text-stone-600 truncate flex-1">{c.cashier}</span>
-                    <span className="text-xs text-stone-400 mr-2">{c.tx} tx</span>
-                    <CentavosDisplay centavos={c.revenue_centavos} size="xs" className="text-stone-700" />
-                  </div>
-                ))}
-              </div>
+              (report?.data?.cashier_performance || report?.cashier_performance || []).length === 0 ? (
+                <p className="text-xs text-stone-400 py-2">No sales yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {(report?.data?.cashier_performance || report?.cashier_performance || []).slice(0, 5).map((c) => (
+                    <div key={c.cashier} className="flex items-center justify-between py-1.5">
+                      <span className="text-xs text-stone-600 truncate flex-1">{c.cashier}</span>
+                      <span className="text-xs text-stone-400 mr-2">{c.tx} tx</span>
+                      <CentavosDisplay centavos={c.revenue_centavos} size="xs" className="text-stone-700" />
+                    </div>
+                  ))}
+                </div>
+              )
             )
           ) : (
             <p className="text-sm text-stone-500">Hidden (financial visibility required)</p>
@@ -514,12 +367,17 @@ export default function Reports() {
             <CardTitle className="text-sm">Per-store breakdown</CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-4 space-y-2">
-            {reportByStore.map((r) => (
+            {perStore.map((r) => (
               <div key={r.store_id} className="flex items-center justify-between py-2 border-b border-stone-50 last:border-0">
-                <span className="text-xs text-stone-600">{r.store_id}</span>
-                {canFinancial && <CentavosDisplay centavos={Number(r.summary?.revenue_centavos || 0)} size="xs" className="text-stone-800" />}
+                <span className="text-xs text-stone-600">{r.store_name || r.store_id}</span>
+                {canFinancial && <CentavosDisplay centavos={Number(r.revenue_centavos || 0)} size="xs" className="text-stone-800" />}
               </div>
             ))}
+            <Link to={createPageUrl("CombinedView")}>
+              <Button variant="outline" className="w-full h-10 text-xs mt-2">
+                Open Owner Combined View <ArrowRight className="w-3 h-3 ml-1" />
+              </Button>
+            </Link>
           </CardContent>
         </Card>
       )}
@@ -538,7 +396,7 @@ export default function Reports() {
                 {topProducts.map((p) => (
                   <div key={p.product_id} className="flex items-center justify-between py-2 border-b border-stone-50 last:border-0">
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-stone-700 truncate">{p.product_id}</p>
+                      <p className="text-sm font-medium text-stone-700 truncate">{p.product_name || p.product_id}</p>
                       <p className="text-[11px] text-stone-400">{p.qty} sold</p>
                     </div>
                     {canFinancial && <CentavosDisplay centavos={p.revenue_centavos} size="sm" className="text-stone-800" />}
@@ -551,19 +409,64 @@ export default function Reports() {
                   <p className="text-sm text-stone-500">No sales in range.</p>
                 ) : (
                   salesDrill.map((s) => (
-                    <div key={s.id} className="flex items-start justify-between py-2 border-b border-stone-50 last:border-0">
+                    <div key={s.sale_id} className="flex items-start justify-between py-2 border-b border-stone-50 last:border-0">
                       <div className="min-w-0">
                         <p className="text-sm font-medium text-stone-700 truncate">{s.cashier_email}</p>
                         <p className="text-[11px] text-stone-400">
                           {new Date(s.sale_date).toLocaleString("en-PH", { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
                           {view === "all" ? ` • ${s.store_id}` : ""}
                         </p>
-                        <p className="text-[11px] text-stone-400 truncate">{s.client_tx_id}</p>
+                        <p className="text-[11px] text-stone-400 truncate">{s.receipt_number || s.client_tx_id}</p>
                       </div>
                       {canFinancial && <CentavosDisplay centavos={s.total_centavos} size="sm" className="text-stone-800" />}
                     </div>
                   ))
                 )}
+              </div>
+            ) : drill?.kind === "low_stock" ? (
+              <div className="space-y-2">
+                {(inventory.low_stock || []).length === 0 ? (
+                  <p className="text-sm text-stone-500">No low stock items.</p>
+                ) : (
+                  (inventory.low_stock || []).map((p) => (
+                    <div key={`${p.store_id || ""}-${p.product_id}`} className="flex items-center justify-between py-2 border-b border-stone-50 last:border-0">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-stone-700 truncate">{p.name || p.product_id}</p>
+                        <p className="text-[11px] text-stone-400">qty {p.stock_quantity} • threshold {p.threshold}{view === "all" ? ` • ${p.store_id}` : ""}</p>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            ) : drill?.kind === "out_of_stock" ? (
+              <div className="space-y-2">
+                {(inventory.out_of_stock || []).length === 0 ? (
+                  <p className="text-sm text-stone-500">No out-of-stock items.</p>
+                ) : (
+                  (inventory.out_of_stock || []).map((p) => (
+                    <div key={`${p.store_id || ""}-${p.product_id}`} className="flex items-center justify-between py-2 border-b border-stone-50 last:border-0">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-stone-700 truncate">{p.name || p.product_id}</p>
+                        <p className="text-[11px] text-stone-400">qty 0{view === "all" ? ` • ${p.store_id}` : ""}</p>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            ) : drill?.kind === "due_customers" ? (
+              <div className="space-y-2">
+                {(due.due_customers || [])
+                  .filter((c) => !drill.bucket || c.bucket === drill.bucket)
+                  .slice(0, 200)
+                  .map((c) => (
+                    <div key={`${c.store_id || ""}-${c.customer_id}`} className="flex items-center justify-between py-2 border-b border-stone-50 last:border-0">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-stone-700 truncate">{c.name || c.customer_id}</p>
+                        <p className="text-[11px] text-stone-400">{c.age_days} days • {c.bucket}{view === "all" ? ` • ${c.store_id}` : ""}</p>
+                      </div>
+                      {canFinancial && <CentavosDisplay centavos={c.balance_due_centavos} size="sm" className="text-red-700" />}
+                    </div>
+                  ))}
               </div>
             ) : (
               <p className="text-sm text-stone-500">No drilldown available.</p>

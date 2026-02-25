@@ -1,6 +1,7 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.18";
 import { jsonOk, jsonFail, jsonFailFromError } from "./_lib/response.ts";
 import { requireActiveStaff } from "./_lib/staff.ts";
+import { requireAuth } from "./_lib/auth.ts";
 
 function toMs(d: any): number {
   try {
@@ -13,8 +14,7 @@ function toMs(d: any): number {
 Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
   try {
-    const user = await base44.auth.me();
-    if (!user) return jsonFail(401, "UNAUTHORIZED", "Unauthorized");
+    const { user } = await requireAuth(base44, req);
 
     const body = await req.json();
     const store_id = body?.store_id;

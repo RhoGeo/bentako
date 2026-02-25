@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
+import { invokeFunction } from "@/api/posyncClient";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
@@ -17,9 +18,11 @@ import {
 import { toast } from "sonner";
 import { ArrowLeft, ScanLine, Trash2, Plus, Save } from "lucide-react";
 import BarcodeScannerModal from "@/components/global/BarcodeScannerModal";
-import { normalizeBarcode } from "@/components/lib/deviceId";
-import { upsertCachedProducts } from "@/components/lib/db";
+import { normalizeBarcode } from "@/lib/ids/deviceId";
+import { getCachedProductByBarcode, upsertCachedProducts } from "@/lib/db";
 import { useActiveStoreId } from "@/components/lib/activeStore";
+import { useCurrentStaff } from "@/components/lib/useCurrentStaff";
+import { auditLog } from "@/components/lib/auditLog";
 
 const CATEGORIES = ["Drinks", "Snacks", "Canned", "Hygiene", "Rice", "Condiments", "Frozen", "Others"];
 
@@ -27,6 +30,7 @@ export default function ProductForm() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { storeId } = useActiveStoreId();
+  const { user } = useCurrentStaff(storeId);
   const urlParams = new URLSearchParams(window.location.search);
   const productId = urlParams.get("id");
   const prefillBarcode = urlParams.get("barcode") || "";
@@ -55,10 +59,10 @@ export default function ProductForm() {
     queryKey: ["product", productId],
     queryFn: async () => {
       if (!productId) return null;
-      const products = await base44.entities.Product.filter({ id: productId });
+      const products = await base44.entities.Product.filter({ id: productId, store_id: storeId });
       return products[0] || null;
     },
-    enabled: !!productId,
+    enabled: !!productId && !!storeId,
   });
 
   // Load variants if parent
@@ -66,10 +70,32 @@ export default function ProductForm() {
     queryKey: ["variants", productId],
     queryFn: async () => {
       if (!productId) return [];
-      return base44.entities.Product.filter({ parent_id: productId });
+      return base44.entities.Product.filter({ parent_id: productId, store_id: storeId, is_active: true });
     },
-    enabled: !!productId,
+    enabled: !!productId && !!storeId,
   });
+
+  const findBarcodeConflict = async ({ barcode, excludeId }) => {
+    if (!storeId) return null;
+    const bc = normalizeBarcode(barcode);
+    if (!bc) return null;
+
+    // Dexie-first: prevents duplicates against offline catalog.
+    const cached = await getCachedProductByBarcode(storeId, bc);
+    if (cached && cached.product_type !== "parent" && cached.id && cached.id !== excludeId) {
+      return cached;
+    }
+
+    if (!navigator.onLine) return null;
+
+    // Server-confirm: barcodeLookup never returns parent and respects store scoping.
+    try {
+      const res = await invokeFunction("barcodeLookup", { store_id: storeId, barcode: bc });
+      const p = res?.data?.product || res?.data?.data?.product || null;
+      if (p && p.id && p.id !== excludeId) return p;
+    } catch (_e) {}
+    return null;
+  };
 
   useEffect(() => {
     if (existingProduct) {
@@ -158,13 +184,7 @@ export default function ProductForm() {
     }
 
     for (const b of barcodesToCheck) {
-      const results = await base44.entities.Product.filter({
-        store_id: storeId,
-        product_type: "single",
-        barcode: b.barcode,
-        is_active: true,
-      });
-      const conflict = results.find((p) => p.id !== b.id);
+      const conflict = await findBarcodeConflict({ barcode: b.barcode, excludeId: b.id || null });
       if (conflict) {
         toast.error(`Barcode already used in this store: ${b.barcode}`);
         setSaving(false);
@@ -179,6 +199,13 @@ export default function ProductForm() {
       const created = await base44.entities.Product.create({ ...data, is_active: true });
       savedProductId = created.id;
     }
+
+    // Audit log (Step 11)
+    await auditLog(isEdit ? "product_edited" : "product_created", isEdit ? "Product edited" : "Product created", {
+      actor_email: user?.email,
+      reference_id: savedProductId,
+      metadata: { store_id: storeId, product_type: data.product_type },
+    });
 
     // Upsert variants for parent
     if (data.product_type === "parent") {

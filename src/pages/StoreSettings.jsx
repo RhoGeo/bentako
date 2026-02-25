@@ -13,9 +13,10 @@ import { auditLog } from "@/components/lib/auditLog";
 import { hashPin, verifyPin } from "@/components/lib/pinVerify";
 import OwnerPinModal from "@/components/global/OwnerPinModal";
 import SafeDefaultsBanner from "@/components/global/SafeDefaultsBanner";
-import { base44 } from "@/api/base44Client";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { invokeFunction } from "@/api/posyncClient";
+import { syncNow } from "@/lib/sync";
 
 export default function StoreSettings() {
   const navigate = useNavigate();
@@ -40,7 +41,8 @@ export default function StoreSettings() {
         address: settings.address || "",
         contact: settings.contact || "",
         pin_required_void_refund: settings.pin_required_void_refund,
-        pin_required_price_discount_override: settings.pin_required_price_discount_override,
+        pin_required_discount_override: settings.pin_required_discount_override ?? settings.pin_required_price_discount_override,
+        pin_required_price_override: settings.pin_required_price_override ?? settings.pin_required_price_discount_override,
         pin_required_stock_adjust: settings.pin_required_stock_adjust,
         pin_required_export: settings.pin_required_export,
         pin_required_device_revoke: settings.pin_required_device_revoke,
@@ -59,11 +61,12 @@ export default function StoreSettings() {
     setSaving(true);
     const existing = rawSettings;
     const changedKeys = form ? Object.keys(form).filter(k => form[k] !== (existing?.[k] ?? SAFE_DEFAULTS[k])) : [];
-    if (existing?.id) {
-      await base44.entities.StoreSettings.update(existing.id, { ...form, store_id: storeId });
-    } else {
-      await base44.entities.StoreSettings.create({ ...form, store_id: storeId });
-    }
+
+    await invokeFunction("updateStoreSettings", {
+      store_id: storeId,
+      ...form,
+    });
+    try { await syncNow(storeId); } catch (_e) {}
     await auditLog("store_settings_updated", `Store settings updated`, { actor_email: user?.email, metadata: { changed_keys: changedKeys } });
     queryClient.invalidateQueries({ queryKey: ["store-settings", storeId] });
     toast.success("Settings saved!");
@@ -79,12 +82,8 @@ export default function StoreSettings() {
     if (!newPin || newPin.length < 4) { toast.error("New PIN must be 4–6 digits."); return; }
     if (newPin !== confirmPin) { toast.error("PINs do not match."); return; }
     const hash = await hashPin(newPin);
-    const existing = rawSettings;
-    if (existing?.id) {
-      await base44.entities.StoreSettings.update(existing.id, { owner_pin_hash: hash });
-    } else {
-      await base44.entities.StoreSettings.create({ store_id: storeId, owner_pin_hash: hash });
-    }
+    await invokeFunction("setOwnerPin", { store_id: storeId, owner_pin_hash: hash });
+    try { await syncNow(storeId); } catch (_e) {}
     await auditLog("store_settings_updated", "Owner PIN changed", { actor_email: user?.email, metadata: { changed_keys: ["owner_pin_hash"] } });
     queryClient.invalidateQueries({ queryKey: ["store-settings", storeId] });
     toast.success("Owner PIN updated!");
@@ -164,7 +163,8 @@ export default function StoreSettings() {
           <h2 className="text-xs font-semibold text-stone-400 uppercase tracking-wider mb-3">Security — Owner PIN Requirements</h2>
           <div className="bg-white rounded-xl border border-stone-100 px-4">
             <Toggle field="pin_required_void_refund" label="PIN: Void / Refund" desc="Require Owner PIN before voiding or refunding a sale." disabled={!isOwner} />
-            <Toggle field="pin_required_price_discount_override" label="PIN: Price / Discount Override" desc="Require PIN before overriding price or applying custom discount." disabled={!isOwner} />
+            <Toggle field="pin_required_discount_override" label="PIN: Discount Override" desc="Require PIN before applying custom discount." disabled={!isOwner} />
+            <Toggle field="pin_required_price_override" label="PIN: Price Override" desc="Require PIN before overriding item price." disabled={!isOwner} />
             <Toggle field="pin_required_stock_adjust" label="PIN: Stock Adjustment" desc="Require PIN before manually adjusting stock quantities." disabled={!isOwner} />
             <Toggle field="pin_required_export" label="PIN: Export Customer Data" desc="Always require PIN before exporting customer data." disabled={!isOwner} />
             <Toggle field="pin_required_device_revoke" label="PIN: Device Revoke" desc="Require PIN before revoking a device." disabled={!isOwner} />

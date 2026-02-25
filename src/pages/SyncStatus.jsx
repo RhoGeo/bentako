@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { useCurrentStaff } from "@/components/lib/useCurrentStaff";
-import { listOfflineQueue, updateQueueEventStatus } from "@/components/lib/db";
+import { listOfflineQueue, updateQueueEventStatus } from "@/lib/db";
 import { syncNow } from "@/components/lib/syncManager";
 import { useActiveStoreId } from "@/components/lib/activeStore";
 

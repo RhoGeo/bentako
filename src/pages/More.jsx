@@ -1,5 +1,5 @@
 import React from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import {
   Users,
@@ -14,8 +14,9 @@ import {
   BookOpen,
   ShieldCheck,
   Store,
+  Layers,
 } from "lucide-react";
-import { base44 } from "@/api/base44Client";
+import { useAuth } from "@/lib/AuthContext";
 
 const menuItems = [
   {
@@ -24,6 +25,13 @@ const menuItems = [
     page: "MyStores",
     color: "text-blue-600",
     bgColor: "bg-blue-50",
+  },
+  {
+    label: "Owner Combined View",
+    icon: Layers,
+    page: "CombinedView",
+    color: "text-indigo-600",
+    bgColor: "bg-indigo-50",
   },
   {
     label: "Operating Policy",
@@ -91,6 +99,8 @@ const menuItems = [
 ];
 
 export default function More() {
+  const navigate = useNavigate();
+  const { signOut } = useAuth();
   return (
     <div className="px-4 py-5 pb-24">
       <h1 className="text-xl font-bold text-stone-800 mb-5">More</h1>
@@ -118,7 +128,10 @@ export default function More() {
 
       {/* Logout */}
       <button
-        onClick={() => base44.auth.logout()}
+        onClick={async () => {
+          await signOut();
+          navigate("/signin", { replace: true });
+        }}
         className="w-full mt-6 flex items-center justify-center gap-2 py-3 rounded-xl bg-stone-100 text-stone-500 text-sm font-medium hover:bg-stone-200 transition-colors touch-target"
       >
         <LogOut className="w-4 h-4" />

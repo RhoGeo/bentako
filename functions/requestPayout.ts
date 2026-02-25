@@ -4,6 +4,7 @@
  */
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.6";
 import { ok, fail } from "./_response.ts";
+import { requireAuth } from "./_lib/auth.ts";
 
 function isInt(n: unknown) {
   return typeof n === "number" && Number.isInteger(n);
@@ -12,8 +13,7 @@ function isInt(n: unknown) {
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-    const user = await base44.auth.me();
-    if (!user) return fail("UNAUTHORIZED", "Unauthorized", null, 401);
+    const { user } = await requireAuth(base44, req);
 
     const body = await req.json();
     const { amount_centavos } = body || {};

@@ -1,18 +1,36 @@
-import React, { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import React, { useCallback, useMemo, useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { toast } from "sonner";
+import BarcodeScannerModal from "@/components/global/BarcodeScannerModal";
 import OwnerPinModal from "@/components/global/OwnerPinModal";
-import { base44 } from "@/api/base44Client";
-import { generateEventId, getDeviceId } from "@/components/lib/deviceId";
-import { enqueueOfflineEvent, patchCachedProductSnapshot, listOfflineQueue } from "@/components/lib/db";
+import WedgeScannerInput from "@/components/counter/WedgeScannerInput";
+import { can } from "@/components/lib/permissions";
+import { getStockQty } from "@/components/inventory/inventoryRules";
+
+import {
+  enqueueOfflineEvent,
+  getCachedProductByBarcode,
+  patchCachedProductSnapshot,
+} from "@/lib/db";
+import {
+  generateEventId,
+  getDeviceId,
+  normalizeBarcode,
+} from "@/lib/ids/deviceId";
+import { syncNow } from "@/components/lib/syncManager";
 
 const REASONS = [
+  "restock",
   "damaged",
   "expired",
   "lost",
@@ -22,287 +40,358 @@ const REASONS = [
   "return_to_supplier",
 ];
 
+function toInt(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return Math.trunc(n);
+}
+
 export default function AdjustStockDrawer({
   open,
-  onClose,
   storeId,
+  products = [],
   settings,
-  rawSettings,
-  product,
-  actorEmail,
-  onQueued,
+  staffMember,
+  user,
+  onClose,
 }) {
-  const [mode, setMode] = useState("add"); // add | deduct
-  const [qty, setQty] = useState("");
-  const [reason, setReason] = useState("manual_correction");
-  const [note, setNote] = useState("");
+  const [searchValue, setSearchValue] = useState("");
+  const [autoAddOnEnter, setAutoAddOnEnter] = useState(true);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [selected, setSelected] = useState(null);
+
+  const [deltaMode, setDeltaMode] = useState("add"); // add | remove
+  const [amount, setAmount] = useState("1");
+  const [reason, setReason] = useState("");
+
   const [pinOpen, setPinOpen] = useState(false);
+  const [pendingPinArgs, setPendingPinArgs] = useState(null);
 
-  const productId = product?.id;
-  const currentQty = Number(product?.stock_quantity ?? product?.stock_qty ?? 0);
-  const allowNegative = !!settings?.allow_negative_stock;
+  const sellable = useMemo(
+    () => (products || []).filter((p) => p?.product_type !== "parent" && p?.is_active !== false),
+    [products]
+  );
 
-  const deltaQty = useMemo(() => {
-    const n = Number(qty || 0);
-    if (!Number.isFinite(n) || n <= 0) return 0;
-    return mode === "deduct" ? -n : n;
-  }, [qty, mode]);
+  const suggestions = useMemo(() => {
+    const q = (searchValue || "").trim().toLowerCase();
+    if (!q) return [];
+    const byName = sellable
+      .filter((p) => (p?.name || "").toString().toLowerCase().includes(q))
+      .slice(0, 8);
+    return byName;
+  }, [sellable, searchValue]);
 
-  const previewQty = currentQty + deltaQty;
-  const canSave = deltaQty !== 0 && !!reason;
+  const currentQty = selected ? getStockQty(selected) : 0;
+  const deltaAbs = Math.max(0, toInt(amount));
+  const deltaQty = deltaMode === "remove" ? -deltaAbs : deltaAbs;
+  const previewQty = selected ? currentQty + deltaQty : 0;
 
-  const { data: queuedLocal = [] } = useQuery({
-    queryKey: ["queued-adjustments", storeId, productId],
-    enabled: !!open && !!storeId && !!productId,
-    queryFn: async () => {
-      const rows = await listOfflineQueue(storeId);
-      return (rows || [])
-        .filter((r) => r.event_type === "adjustStock")
-        .map((r) => {
-          try {
-            return { ...r, payload: JSON.parse(r.payload_json || "{}") };
-          } catch (_e) {
-            return { ...r, payload: {} };
-          }
-        })
-        .filter((r) => r.payload?.product_id === productId)
-        .sort((a, b) => (b.created_at_device || 0) - (a.created_at_device || 0))
-        .slice(0, 8);
+  const needsOwnerPin = useMemo(() => {
+    if (!selected) return false;
+    const hasPerm = can(staffMember, "inventory_adjust_stock");
+    const requirePin = !!settings?.pin_required_stock_adjust;
+    return !hasPerm && requirePin;
+  }, [selected, staffMember, settings]);
+
+  const findByBarcode = useCallback(
+    async (barcode) => {
+      if (!storeId) return null;
+      const normalized = normalizeBarcode(barcode);
+
+      const cached = await getCachedProductByBarcode(storeId, normalized);
+      if (cached) return cached;
+
+      const inMem = sellable.find((p) => normalizeBarcode(p?.barcode || "") === normalized);
+      return inMem || null;
     },
-    initialData: [],
-  });
+    [storeId, sellable]
+  );
 
-  const { data: history = [] } = useQuery({
-    queryKey: ["stock-ledger-adjustments", storeId, productId],
-    enabled: !!open && !!storeId && !!productId && navigator.onLine,
-    queryFn: async () => {
-      // Best-effort: StockLedger may not exist in all schemas.
-      try {
-        const rows = await base44.entities.StockLedger.filter({
-          store_id: storeId,
-          product_id: productId,
-          reference_type: "adjustment",
-        });
-        const sorted = (rows || []).slice().sort((a, b) => {
-          const ta = new Date(a.created_at || a.created_date || 0).getTime();
-          const tb = new Date(b.created_at || b.created_date || 0).getTime();
-          return tb - ta;
-        });
-        return sorted.slice(0, 20);
-      } catch (_e) {
-        return [];
+  const selectProduct = (p) => {
+    setSelected(p);
+    setSearchValue(p?.name || p?.barcode || "");
+  };
+
+  const handleEnterSubmit = useCallback(
+    async (value) => {
+      const p = await findByBarcode(value);
+      if (p) {
+        if (autoAddOnEnter) {
+          selectProduct(p);
+          return;
+        }
+        setSearchValue(p?.name || value);
+        return;
       }
+      toast.warning("Barcode not found", { duration: 1400 });
     },
-    initialData: [],
-    staleTime: 30_000,
-  });
+    [findByBarcode, autoAddOnEnter]
+  );
 
-  const resetForm = () => {
-    setMode("add");
-    setQty("");
-    setReason("manual_correction");
-    setNote("");
-  };
+  const queueAdjustment = useCallback(
+    async ({ owner_pin_proof }) => {
+      if (!storeId) return;
+      if (!selected?.id) return;
+      if (!reason) {
+        toast.error("Piliin ang reason.");
+        return;
+      }
+      if (!REASONS.includes(reason)) {
+        toast.error("Invalid reason.");
+        return;
+      }
+      if (deltaAbs <= 0) {
+        toast.error("Ilagay ang quantity (>=1).");
+        return;
+      }
 
-  const queue = async (owner_pin_proof) => {
-    if (!storeId || !productId) return;
-    if (!canSave) return toast.error("Enter a quantity and reason.");
-    if (!allowNegative && previewQty < 0) return toast.error("Negative stock not allowed (Store Settings).");
+      const device_id = getDeviceId();
+      const event_id = generateEventId();
+      const adjustment_id = generateEventId();
 
-    const event_id = generateEventId();
-    const payload = {
-      store_id: storeId,
-      product_id: productId,
-      delta_qty: deltaQty,
-      reason,
-      note: note || "",
-      adjustment_id: event_id,
-      device_id: getDeviceId(),
-      owner_pin_proof: owner_pin_proof || null,
-    };
+      const payload = {
+        store_id: storeId,
+        product_id: selected.id,
+        delta_qty: deltaQty,
+        reason,
+        adjustment_id,
+        device_id,
+        owner_pin_proof: owner_pin_proof ?? null,
+      };
 
-    await enqueueOfflineEvent({
-      store_id: storeId,
-      device_id: getDeviceId(),
-      event_id,
-      event_type: "adjustStock",
-      payload,
-      created_at_device: Date.now(),
-    });
+      await enqueueOfflineEvent({
+        store_id: storeId,
+        event_id,
+        device_id,
+        client_tx_id: null,
+        event_type: "adjustStock",
+        payload,
+        created_at_device: Date.now(),
+      });
 
-    // Optimistic patch for offline UI.
-    await patchCachedProductSnapshot(storeId, productId, {
-      ...(product || {}),
-      stock_quantity: previewQty,
-      stock_qty: previewQty,
-    });
+      // Optimistic patch (offline-first): adjust local cached product stock
+      const next = { ...selected };
+      const nextQty = (Number(getStockQty(selected)) || 0) + Number(deltaQty);
+      next.stock_quantity = nextQty;
+      await patchCachedProductSnapshot(storeId, selected.id, next);
 
-    toast.success("Stock adjustment queued.");
-    resetForm();
-    onQueued?.();
-    onClose?.();
-  };
+      toast.success("Stock adjustment queued.", { duration: 1600 });
 
-  const handleSave = async () => {
-    if (!canSave) return toast.error("Enter a quantity and reason.");
+      if (navigator.onLine) {
+        syncNow(storeId).catch(() => {});
+      }
 
-    // Optional PIN requirement (if your schema has it)
-    if (settings?.pin_required_stock_adjust && rawSettings?.owner_pin_hash) {
-      setPinOpen(true);
+      // reset
+      setReason("");
+      setAmount("1");
+      setDeltaMode("add");
+      setSelected(null);
+      setSearchValue("");
+      onClose?.();
+    },
+    [storeId, selected, reason, deltaAbs, deltaQty, onClose]
+  );
+
+  const handleSubmit = async () => {
+    if (!selected) {
+      toast.error("Pumili muna ng item.");
+      return;
+    }
+    if (!reason) {
+      toast.error("Piliin ang reason.");
+      return;
+    }
+    if (deltaAbs <= 0) {
+      toast.error("Ilagay ang quantity (>=1).");
       return;
     }
 
-    await queue(null);
+    if (needsOwnerPin) {
+      setPendingPinArgs({});
+      setPinOpen(true);
+      return;
+    }
+    await queueAdjustment({ owner_pin_proof: null });
   };
 
   return (
     <>
-      <Sheet open={open} onOpenChange={(v) => !v && onClose?.()}>
-        <SheetContent side="bottom" className="max-h-[92vh] overflow-y-auto">
-          <SheetHeader>
-            <SheetTitle>Adjust Stock</SheetTitle>
+      <Sheet
+        open={open}
+        onOpenChange={(v) => {
+          if (!v) onClose?.();
+        }}
+      >
+        <SheetContent side="bottom" className="rounded-t-2xl max-h-[92vh] overflow-y-auto p-0">
+          <SheetHeader className="px-5 pt-5 pb-3 border-b border-stone-100">
+            <SheetTitle className="text-lg">Adjust Stock</SheetTitle>
           </SheetHeader>
 
-          {product ? (
-            <div className="mt-4 space-y-4">
-              <div className="bg-stone-50 rounded-xl p-3 border border-stone-100">
-                <p className="font-semibold text-stone-900 truncate">{product.name}</p>
-                <p className="text-xs text-stone-500">Barcode: {product.barcode || "—"}</p>
-                <div className="mt-2 flex items-center justify-between">
-                  <div className="text-xs text-stone-500">Current stock</div>
-                  <div className="text-lg font-bold text-stone-900">{currentQty}</div>
+          <div className="px-5 py-4 space-y-5">
+            {/* Product picker */}
+            <div>
+              <Label className="text-xs text-stone-500 mb-2 block">Item (barcode or name)</Label>
+              <WedgeScannerInput
+                value={searchValue}
+                onChange={setSearchValue}
+                onEnterSubmit={handleEnterSubmit}
+                autoAddOnEnter={autoAddOnEnter}
+                setAutoAddOnEnter={setAutoAddOnEnter}
+                onScanIconClick={() => setScannerOpen(true)}
+                placeholder="Scan / type barcode…"
+              />
+              {suggestions.length > 0 && !selected && (
+                <div className="mt-2 rounded-xl border border-stone-100 bg-white overflow-hidden">
+                  {suggestions.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => selectProduct(p)}
+                      className="w-full text-left px-4 py-3 border-b last:border-b-0 border-stone-100 hover:bg-stone-50 active:bg-stone-100"
+                    >
+                      <div className="text-sm font-semibold text-stone-800">{p.name}</div>
+                      <div className="text-[11px] text-stone-500">{p.barcode || "No barcode"}</div>
+                    </button>
+                  ))}
                 </div>
-                <div className="mt-1 flex items-center justify-between">
-                  <div className="text-xs text-stone-500">Preview</div>
-                  <div className={`text-lg font-bold ${previewQty < 0 ? "text-red-600" : "text-stone-900"}`}>{previewQty}</div>
-                </div>
-              </div>
-
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setMode("add")}
-                  className={`flex-1 py-2 rounded-xl text-xs font-semibold border ${
-                    mode === "add" ? "bg-blue-600 text-white border-blue-600" : "bg-white text-stone-600 border-stone-200"
-                  }`}
-                >
-                  Add
-                </button>
-                <button
-                  onClick={() => setMode("deduct")}
-                  className={`flex-1 py-2 rounded-xl text-xs font-semibold border ${
-                    mode === "deduct" ? "bg-red-600 text-white border-red-600" : "bg-white text-stone-600 border-stone-200"
-                  }`}
-                >
-                  Deduct
-                </button>
-              </div>
-
-              <div>
-                <Label className="text-xs">Quantity</Label>
-                <Input
-                  value={qty}
-                  onChange={(e) => setQty(e.target.value.replace(/[^0-9]/g, ""))}
-                  inputMode="numeric"
-                  placeholder="0"
-                  className="h-11"
-                />
-              </div>
-
-              <div>
-                <Label className="text-xs">Reason</Label>
-                <Select value={reason} onValueChange={setReason}>
-                  <SelectTrigger className="h-11">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {REASONS.map((r) => (
-                      <SelectItem key={r} value={r}>
-                        {r.replace(/_/g, " ")}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <Label className="text-xs">Note (optional)</Label>
-                <Input value={note} onChange={(e) => setNote(e.target.value)} className="h-11" placeholder="e.g. expired items" />
-              </div>
-
-              <div className="flex gap-2">
-                <Button variant="outline" className="flex-1 h-12" onClick={() => { resetForm(); onClose?.(); }}>
-                  Cancel
-                </Button>
-                <Button className="flex-1 h-12 bg-blue-600 hover:bg-blue-700" onClick={handleSave}>
-                  Queue Adjustment
-                </Button>
-              </div>
-
-              <Separator />
-
-              {queuedLocal.length > 0 && (
-                <div>
-                  <p className="font-semibold text-stone-800 text-sm mb-2">Queued (Offline)</p>
-                  <div className="space-y-2">
-                    {queuedLocal.map((q) => (
-                      <div key={q.event_id} className="bg-amber-50 border border-amber-200 rounded-xl p-3">
-                        <div className="flex items-center justify-between">
-                          <div className="text-sm font-medium text-amber-800">
-                            {Number(q.payload?.delta_qty || 0) > 0 ? "+" : ""}
-                            {Number(q.payload?.delta_qty || 0)}
-                          </div>
-                          <div className="text-[11px] text-amber-700">{q.status}</div>
-                        </div>
-                        <div className="text-[11px] text-amber-700">Reason: {q.payload?.reason}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {history.length > 0 && (
-                <>
-                  <Separator />
-                  <div>
-                    <p className="font-semibold text-stone-800 text-sm mb-2">History (Adjustments)</p>
-                    <div className="space-y-2">
-                      {history.map((h) => (
-                        <div key={h.id} className="bg-white border border-stone-100 rounded-xl p-3">
-                          <div className="flex items-center justify-between">
-                            <div className="text-sm font-medium text-stone-800">
-                              {Number(h.qty_delta || 0) > 0 ? "+" : ""}
-                              {Number(h.qty_delta || 0)}
-                            </div>
-                            <div className="text-[11px] text-stone-500">
-                              {new Date(h.created_at || h.created_date).toLocaleString("en-PH")}
-                            </div>
-                          </div>
-                          <div className="mt-1 text-[11px] text-stone-600">
-                            {h.reason} · {Number(h.prev_qty ?? 0)} → <span className="font-semibold">{Number(h.resulting_qty ?? 0)}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </>
               )}
             </div>
-          ) : (
-            <div className="py-10 text-sm text-stone-500">No product selected.</div>
-          )}
+
+            {/* Selected */}
+            {selected && (
+              <div className="rounded-xl border border-stone-100 bg-stone-50 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-bold text-stone-800">{selected.name}</div>
+                    <div className="text-[11px] text-stone-500">{selected.barcode || "No barcode"}</div>
+                  </div>
+                  <Button variant="outline" className="h-9" onClick={() => setSelected(null)}>
+                    Change
+                  </Button>
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <div className="rounded-lg bg-white border border-stone-100 p-3 text-center">
+                    <div className="text-[11px] text-stone-500">Current</div>
+                    <div className="text-xl font-bold text-stone-800">{currentQty}</div>
+                  </div>
+                  <div className="rounded-lg bg-white border border-stone-100 p-3 text-center">
+                    <div className="text-[11px] text-stone-500">After</div>
+                    <div className={`text-xl font-bold ${previewQty < 0 ? "text-red-700" : "text-stone-800"}`}>{previewQty}</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Delta */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => setDeltaMode("add")}
+                className={`h-12 rounded-xl text-sm font-semibold transition-all touch-target ${
+                  deltaMode === "add" ? "bg-emerald-600 text-white" : "bg-stone-100 text-stone-700"
+                }`}
+              >
+                Add
+              </button>
+              <button
+                onClick={() => setDeltaMode("remove")}
+                className={`h-12 rounded-xl text-sm font-semibold transition-all touch-target ${
+                  deltaMode === "remove" ? "bg-red-600 text-white" : "bg-stone-100 text-stone-700"
+                }`}
+              >
+                Remove
+              </button>
+            </div>
+
+            <div>
+              <Label className="text-xs text-stone-500 mb-2 block">Quantity</Label>
+              <Input
+                type="number"
+                inputMode="numeric"
+                min={1}
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className="h-14 text-2xl text-center font-bold bg-white"
+              />
+              <div className="flex flex-wrap gap-2 mt-2">
+                {[1, 5, 10, 20].map((q) => (
+                  <button
+                    key={q}
+                    onClick={() => setAmount(String(q))}
+                    className="px-3 py-1.5 rounded-lg bg-stone-100 text-stone-700 text-xs font-medium hover:bg-stone-200 active:scale-95 transition-all"
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Reason */}
+            <div>
+              <Label className="text-xs text-stone-500 mb-2 block">Reason</Label>
+              <Select value={reason} onValueChange={setReason}>
+                <SelectTrigger className="h-12">
+                  <SelectValue placeholder="Choose reason" />
+                </SelectTrigger>
+                <SelectContent>
+                  {REASONS.map((r) => (
+                    <SelectItem key={r} value={r}>
+                      {r}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {needsOwnerPin && (
+                <p className="mt-2 text-[11px] text-amber-700">
+                  Requires Owner PIN (staff role: {staffMember?.role || "unknown"}).
+                </p>
+              )}
+            </div>
+
+            <Button
+              className={`w-full h-14 text-base font-bold touch-target safe-bottom ${
+                deltaMode === "remove" ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700"
+              } text-white`}
+              onClick={handleSubmit}
+              disabled={!storeId}
+            >
+              Queue Adjustment
+            </Button>
+          </div>
         </SheetContent>
       </Sheet>
 
+      {/* Scanner (single scan) */}
+      <BarcodeScannerModal
+        open={scannerOpen}
+        mode="single"
+        context="items"
+        onLookup={async (barcode) => {
+          const p = await findByBarcode(barcode);
+          if (p) {
+            selectProduct(p);
+            return { found: true, handled: true, label: p.name };
+          }
+          return { found: false };
+        }}
+        onNotFound={() => toast.warning("Barcode not found", { duration: 1500 })}
+        onClose={() => setScannerOpen(false)}
+      />
+
+      {/* Owner PIN */}
       <OwnerPinModal
         open={pinOpen}
-        onClose={() => setPinOpen(false)}
-        onApproved={({ owner_pin_proof }) => {
+        onClose={() => {
           setPinOpen(false);
-          queue(owner_pin_proof);
+          setPendingPinArgs(null);
         }}
-        actionContext={`Adjust stock: ${product?.name || ""}`}
-        storedHash={rawSettings?.owner_pin_hash}
-        actorEmail={actorEmail}
+        storedHash={settings?.owner_pin_hash || null}
+        actorEmail={user?.email || ""}
+        actionContext="Adjust Stock"
+        onApproved={async ({ owner_pin_proof }) => {
+          setPinOpen(false);
+          setPendingPinArgs(null);
+          await queueAdjustment({ owner_pin_proof });
+        }}
       />
     </>
   );

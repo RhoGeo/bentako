@@ -1,12 +1,12 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.18";
 import { jsonOk, jsonFail, jsonFailFromError } from "./_lib/response.ts";
 import { normalizeBarcode } from "./_lib/barcode.ts";
+import { requireAuth } from "./_lib/auth.ts";
 
-Deno.serve(async (req) => {
+export async function barcodeLookup(req: Request): Promise<Response> {
   const base44 = createClientFromRequest(req);
   try {
-    const user = await base44.auth.me();
-    if (!user) return jsonFail(401, "UNAUTHORIZED", "Unauthorized");
+    await requireAuth(base44, req);
 
     const body = await req.json();
     const store_id = body?.store_id;
@@ -34,4 +34,6 @@ Deno.serve(async (req) => {
   } catch (err) {
     return jsonFailFromError(err);
   }
-});
+}
+
+Deno.serve(barcodeLookup);

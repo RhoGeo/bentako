@@ -10,7 +10,7 @@ import { toast } from "sonner";
 import OwnerPinModal from "@/components/global/OwnerPinModal";
 
 import { generateEventId, getDeviceId } from "@/components/lib/deviceId";
-import { enqueueOfflineEvent, patchCachedProductSnapshot, listOfflineQueue } from "@/components/lib/db";
+import { enqueueOfflineEvent, patchCachedProductSnapshot, listOfflineQueue } from "@/lib/db";
 import CentavosDisplay from "@/components/shared/CentavosDisplay";
 
 function pesosToCentavos(pesosStr) {

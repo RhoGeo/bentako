@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { base44 } from "@/api/base44Client";
+import { invokeFunction } from "@/api/posyncClient";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
@@ -20,7 +21,7 @@ import { useCurrentStaff } from "@/components/lib/useCurrentStaff";
 import { useActiveStoreId } from "@/components/lib/activeStore";
 import { useStoresForUser } from "@/components/lib/useStores";
 import { useStoreSettings } from "@/components/lib/useStoreSettings";
-import { getOfflineQueueCounts } from "@/components/lib/db";
+import { getOfflineQueueCounts } from "@/lib/db";
 import { can } from "@/components/lib/permissions";
 
 function startOfTodayISO() {
@@ -39,7 +40,7 @@ export default function Today() {
   const [view, setView] = useState("store"); // store | all
 
   const activeStoreIds = useMemo(() => {
-    if (view === "all" && canCombined) return stores.map((s) => s.store_id);
+    if (view === "all" && canCombined) return stores.map((s) => s.id || s.store_id).filter(Boolean);
     return [storeId];
   }, [view, canCombined, stores, storeId]);
 
@@ -52,8 +53,10 @@ export default function Today() {
     queryFn: async () => {
       const results = await Promise.all(
         activeStoreIds.map(async (sid) => {
-          const res = await base44.functions.invoke("getReportData", { store_id: sid, from, to });
-          return { store_id: sid, ...(res?.data?.summary || {}) };
+          const res = await invokeFunction("getReportData", { store_id: sid, from, to });
+          const payload = res?.data?.data || res?.data || res;
+          const data = payload?.data || payload;
+          return { store_id: sid, ...(data?.summary || {}) };
         })
       );
       return results;

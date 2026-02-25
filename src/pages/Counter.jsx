@@ -7,8 +7,8 @@
  *   - barcode lookup: Dexie cache first, then server fallback (if online)
  *   - Parked sales: NO stock deduction (enforced here + server)
  */
-import React, { useState, useCallback, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import React, { useState, useCallback } from "react";
+import { invokeFunction } from "@/api/posyncClient";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ScanLine } from "lucide-react";
@@ -18,74 +18,50 @@ import CartPanel from "@/components/counter/CartPanel";
 import PaymentDrawer from "@/components/counter/PaymentDrawer";
 import InventoryHealthCard from "@/components/counter/InventoryHealthCard";
 import BarcodeScannerModal from "@/components/global/BarcodeScannerModal";
+import AdjustStockDrawer from "@/components/inventory/AdjustStockDrawer";
 import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import {
   getCachedProductByBarcode,
-  upsertCachedProducts,
-  upsertCachedCustomers,
   enqueueOfflineEvent,
   upsertLocalReceipt,
   getAllCachedProducts,
   getAllCachedCustomers,
-} from "@/components/lib/db";
-import { generateClientTxId, generateEventId, getDeviceId, normalizeBarcode } from "@/components/lib/deviceId";
+} from "@/lib/db";
+import { generateClientTxId, generateEventId, getDeviceId, normalizeBarcode } from "@/lib/ids/deviceId";
 import { syncNow } from "@/components/lib/syncManager";
 import { useActiveStoreId } from "@/components/lib/activeStore";
+import { useStoreSettings } from "@/components/lib/useStoreSettings";
+import { useCurrentStaff } from "@/components/lib/useCurrentStaff";
+import { getStockQty } from "@/components/inventory/inventoryRules";
 
 export default function Counter() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { storeId: STORE_ID } = useActiveStoreId();
+  const { settings } = useStoreSettings(STORE_ID);
+  const { staffMember, user } = useCurrentStaff(STORE_ID);
   const [searchValue, setSearchValue] = useState("");
   const [autoAddOnEnter, setAutoAddOnEnter] = useState(true);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
+  const [adjustOpen, setAdjustOpen] = useState(false);
   const [cart, setCart] = useState([]);
-  const [offlineProducts, setOfflineProducts] = useState([]);
-  const [offlineCustomers, setOfflineCustomers] = useState([]);
 
-  // Fetch products from server (also seeds Dexie cache)
-  const { data: serverProducts = [] } = useQuery({
-    queryKey: ["products", STORE_ID],
-    queryFn: async () => {
-      const products = await base44.entities.Product.filter({
-        store_id: STORE_ID,
-        product_type: "single",
-        is_active: true,
-      });
-      await upsertCachedProducts(products, STORE_ID);
-      return products;
-    },
+  // Offline-first reads: Dexie cached_* (kept fresh by SyncManager pullUpdates)
+  const { data: products = [] } = useQuery({
+    queryKey: ["cached-products", STORE_ID],
+    queryFn: () => getAllCachedProducts(STORE_ID),
+    refetchInterval: 4_000,
     initialData: [],
   });
 
-  const { data: serverCustomers = [] } = useQuery({
-    queryKey: ["customers", STORE_ID],
-    queryFn: async () => {
-      const customers = await base44.entities.Customer.filter({ store_id: STORE_ID, is_active: true });
-      await upsertCachedCustomers(customers, STORE_ID);
-      return customers;
-    },
+  const { data: customers = [] } = useQuery({
+    queryKey: ["cached-customers", STORE_ID],
+    queryFn: () => getAllCachedCustomers(STORE_ID),
+    refetchInterval: 8_000,
     initialData: [],
   });
-
-  // Load Dexie cache for offline fallback
-  useEffect(() => {
-    const load = async () => {
-      const [p, c] = await Promise.all([
-        getAllCachedProducts(STORE_ID),
-        getAllCachedCustomers(STORE_ID),
-      ]);
-      setOfflineProducts(p);
-      setOfflineCustomers(c);
-    };
-    load();
-  }, [STORE_ID]);
-
-  // Merge: server data (if available) + Dexie cache (offline fallback)
-  const products = serverProducts.length > 0 ? serverProducts : offlineProducts;
-  const customers = serverCustomers.length > 0 ? serverCustomers : offlineCustomers;
 
   // ── Barcode lookup ────────────────────────────────────────────────────────
   // Dexie first → server fallback (if online)
@@ -96,14 +72,14 @@ export default function Counter() {
       const cached = await getCachedProductByBarcode(STORE_ID, normalized);
       if (cached) return cached;
 
-      // 2. In-memory products array (already fetched)
-      const inMem = products.find((p) => normalizeBarcode(p.barcode) === normalized && p.product_type === "single");
+      // 2. In-memory products array (Dexie snapshots)
+      const inMem = products.find((p) => normalizeBarcode(p.barcode) === normalized);
       if (inMem) return inMem;
 
       // 3. Server fallback (online only)
       if (navigator.onLine) {
         try {
-          const res = await base44.functions.invoke("barcodeLookup", { store_id: STORE_ID, barcode: normalized });
+          const res = await invokeFunction("barcodeLookup", { store_id: STORE_ID, barcode: normalized });
           return res?.data?.product || res?.data?.data?.product || null;
         } catch (_e) {
           return null;
@@ -198,7 +174,9 @@ export default function Counter() {
   );
 
   const subtotalCentavos = cart.reduce((sum, i) => sum + i.line_total_centavos, 0);
-  const totalCentavos = subtotalCentavos;
+  const referralPct = Number(settings?.referral_discount_percent || 0);
+  const referralDiscountCentavos = referralPct > 0 ? Math.floor((subtotalCentavos * referralPct) / 100) : 0;
+  const totalCentavos = Math.max(0, subtotalCentavos - referralDiscountCentavos);
 
   const cartItemsMap = {};
   cart.forEach((i) => { cartItemsMap[i.product_id] = i.qty; });
@@ -257,10 +235,9 @@ export default function Counter() {
     const device_id = getDeviceId();
     const isOnline = navigator.onLine;
 
-    // Map existing PaymentDrawer to spec payments[] (single line for now)
-    const payments = payload?.payment_method
-      ? [{ method: payload.payment_method, amount_centavos: payload.amount_paid_centavos || 0 }]
-      : [{ method: "cash", amount_centavos: payload.amount_paid_centavos || 0 }];
+    // Step 10: split + partial payments.
+    // PaymentDrawer returns payments[] as { method, amount_centavos } (already centavos).
+    const payments = Array.isArray(payload?.payments) ? payload.payments : [];
 
     const completeSalePayload = {
       store_id: STORE_ID,
@@ -314,8 +291,31 @@ export default function Counter() {
     setPaymentOpen(false);
   };
 
-  const lowStock = products.filter((p) => p.track_stock && (p.stock_quantity ?? p.stock_qty) > 0 && (p.stock_quantity ?? p.stock_qty) <= p.low_stock_threshold);
-  const outOfStock = products.filter((p) => p.track_stock && (p.stock_quantity ?? p.stock_qty) <= 0);
+  const sellable = products.filter((p) => p?.product_type !== "parent" && p?.is_active !== false);
+  const totalSellable = sellable.length;
+  const trackedCount = sellable.filter((p) => !!p.track_stock).length;
+  const lowDefault = Number(settings?.low_stock_threshold_default ?? 5);
+  const effectiveLow = (p) => {
+    const v = p?.low_stock_threshold;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : lowDefault;
+  };
+
+  const lowStock = sellable.filter((p) => {
+    if (!p.track_stock) return false;
+    const qty = getStockQty(p);
+    return qty > 0 && qty <= effectiveLow(p);
+  });
+  const outOfStock = sellable.filter((p) => {
+    if (!p.track_stock) return false;
+    const qty = getStockQty(p);
+    return qty === 0;
+  });
+  const negativeStock = sellable.filter((p) => {
+    if (!p.track_stock) return false;
+    const qty = getStockQty(p);
+    return qty < 0;
+  });
 
   return (
     <div className="pb-36">
@@ -356,10 +356,13 @@ export default function Counter() {
       {/* Inventory Health */}
       <div className="px-4 pb-4">
         <InventoryHealthCard
-          totalSellable={products.length}
-          trackedCount={products.filter((p) => p.track_stock).length}
+          totalSellable={totalSellable}
+          trackedCount={trackedCount}
           lowStockCount={lowStock.length}
           outOfStockCount={outOfStock.length}
+          negativeStockCount={negativeStock.length}
+          showNegative={!!settings?.allow_negative_stock}
+          onAdjustStock={() => setAdjustOpen(true)}
         />
       </div>
 
@@ -367,6 +370,7 @@ export default function Counter() {
       <CartPanel
         items={cart}
         subtotalCentavos={subtotalCentavos}
+        discountCentavos={referralDiscountCentavos}
         totalCentavos={totalCentavos}
         onInc={(pid) => {
           const product = products.find((p) => p.id === pid);
@@ -383,6 +387,7 @@ export default function Counter() {
         open={scannerOpen}
         mode="continuous"
         context="counter"
+        overlay={{ cartQty: cart.reduce((sum, i) => sum + (i.qty || 0), 0), totalCentavos }}
         onLookup={async (barcode) => {
           const product = await lookupBarcode(barcode);
           if (product) {
@@ -410,6 +415,17 @@ export default function Counter() {
         customers={customers}
         onConfirm={handlePaymentConfirm}
         onClose={() => setPaymentOpen(false)}
+      />
+
+      {/* Adjust Stock (Step 9) */}
+      <AdjustStockDrawer
+        open={adjustOpen}
+        storeId={STORE_ID}
+        products={sellable}
+        settings={settings}
+        staffMember={staffMember}
+        user={user}
+        onClose={() => setAdjustOpen(false)}
       />
     </div>
   );

@@ -5,18 +5,18 @@
  * Multi-store UI is implemented later, but all reads/writes should call getActiveStoreId().
  */
 import React from "react";
-import { useQuery } from "@tanstack/react-query";
-import { base44 } from "@/api/base44Client";
-
-const STORE_KEY = "posync_active_store_id";
+import { useAuth } from "@/lib/AuthContext";
+import {
+  getActiveStoreId as getActiveStoreIdRaw,
+  setActiveStoreId as setActiveStoreIdRaw,
+} from "@/components/lib/activeStore";
 
 export function getActiveStoreId() {
-  return localStorage.getItem(STORE_KEY) || "default";
+  return getActiveStoreIdRaw();
 }
 
 export function setActiveStoreId(storeId) {
-  if (!storeId) return;
-  localStorage.setItem(STORE_KEY, storeId);
+  setActiveStoreIdRaw(storeId);
 }
 
 /**
@@ -25,45 +25,18 @@ export function setActiveStoreId(storeId) {
  * - Fallback to a single default store.
  */
 export function useMyStores() {
-  const { data: user } = useQuery({
-    queryKey: ["current-user"],
-    queryFn: () => base44.auth.me(),
-    staleTime: 300_000,
-  });
+  const { stores, memberships, isLoadingAuth } = useAuth();
+  const data = (stores || []).map((s) => ({
+    id: s.id || s.store_id,
+    store_name: s.store_name || s.name,
+    membership: (memberships || []).find((m) => m.store_id === (s.id || s.store_id)) || null,
+  }));
 
-  return useQuery({
-    queryKey: ["my-stores", user?.email],
-    enabled: !!user?.email,
-    queryFn: async () => {
-      try {
-        // 1) Memberships → Stores
-        const memberships = await base44.entities.StoreMembership.filter({
-          user_email: user.email,
-          is_active: true,
-        });
-        if (memberships?.length) {
-          // Avoid relying on complex query operators; fetch store records one-by-one.
-          const stores = [];
-          for (const m of memberships) {
-            if (!m.store_id) continue;
-            try {
-              const found = await base44.entities.Store.filter({ id: m.store_id });
-              if (found?.[0]) stores.push({ ...found[0], membership: m });
-              else stores.push({ id: m.store_id, store_name: m.store_name || "Store", membership: m });
-            } catch (_e) {
-              stores.push({ id: m.store_id, store_name: m.store_name || "Store", membership: m });
-            }
-          }
-          return stores.length ? stores : [{ id: "default", store_name: "My Sari-Sari" }];
-        }
-      } catch (_e) {
-        // ignore — entity may not exist in some deployments
-      }
-      return [{ id: "default", store_name: "My Sari-Sari" }];
-    },
-    staleTime: 60_000,
-    initialData: [{ id: "default", store_name: "My Sari-Sari" }],
-  });
+  return {
+    data,
+    isLoading: isLoadingAuth,
+    error: null,
+  };
 }
 
 export const StoreScopeContext = React.createContext({

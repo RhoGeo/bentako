@@ -5,6 +5,8 @@ import { requirePermissionOrOwnerPin } from "./_lib/guard.ts";
 import { startIdempotentOperation, markIdempotentApplied } from "./_lib/idempotency.ts";
 import { applyStockDeltaWithLedger } from "./_lib/stockAtomic.ts";
 import { assertCentavosInt } from "./_lib/money.ts";
+import { requireAuth } from "./_lib/auth.ts";
+import { logActivityEvent } from "./_lib/activity.ts";
 
 function mutationKey(store_id: string, product_id: string, restock_id: string) {
   return `${store_id}::${product_id}::restock::${restock_id}`;
@@ -13,8 +15,7 @@ function mutationKey(store_id: string, product_id: string, restock_id: string) {
 Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
   try {
-    const user = await base44.auth.me();
-    if (!user) return jsonFail(401, "UNAUTHORIZED", "Unauthorized");
+    const { user } = await requireAuth(base44, req);
 
     const body = await req.json();
     const {
@@ -122,6 +123,18 @@ Deno.serve(async (req) => {
       mutation_key: key,
     };
     await markIdempotentApplied(base44, record.id, result);
+
+    await logActivityEvent(base44, {
+      store_id,
+      event_type: "stock_restocked",
+      description: "Stock restocked",
+      entity_id: product_id,
+      user_id: user.user_id,
+      actor_email: user.email,
+      device_id: device_id || null,
+      metadata_json: { restock_id, restock_qty: qty, new_cost_centavos: costCentavos, note: note || "" },
+    });
+
     return jsonOk(result);
   } catch (err) {
     return jsonFailFromError(err);

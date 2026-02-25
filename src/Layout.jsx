@@ -10,7 +10,7 @@ import { useQuery } from "@tanstack/react-query";
 import { BarChart3, CalendarDays, ScanLine, Package, MoreHorizontal, Store } from "lucide-react";
 import { Toaster } from "sonner";
 import { toast } from "sonner";
-import { getOfflineQueueCounts } from "@/components/lib/db";
+import { getOfflineQueueCounts } from "@/lib/db";
 import { syncNow, startAutoSync } from "@/components/lib/syncManager";
 import { setActiveStoreId, useActiveStoreId, hasActiveStoreSelection } from "@/components/lib/activeStore";
 import { useStoresForUser } from "@/components/lib/useStores";
@@ -35,6 +35,7 @@ export default function Layout({ children, currentPageName }) {
   const showTabs = TAB_PAGES.includes(currentPageName);
   const { storeId } = useActiveStoreId();
   const { stores, isLoading: storesLoading } = useStoresForUser();
+  const storeIdOf = (s) => s?.id || s?.store_id;
   const { isUsingSafeDefaults, settings } = useStoreSettings(storeId);
 
   const { data: queueCounts } = useQuery({
@@ -72,25 +73,15 @@ export default function Layout({ children, currentPageName }) {
     // Wait until the query is truly done (not just loading) before acting.
     if (storesLoading) return;
 
-    // No stores at all → send to onboarding (only after query settled and user is loaded)
-    if (!stores || stores.length === 0) {
-      const isOnboarding = window.location.pathname.includes("Onboarding");
-      if (!isOnboarding) {
-        // Small delay to avoid false redirects on slow auth load
-        const t = setTimeout(() => {
-          window.location.href = createPageUrl("Onboarding");
-        }, 500);
-        return () => clearTimeout(t);
-      }
-      return;
-    }
+    // No stores: routing gate (AppRouter) will send user to /first-store.
+    if (!stores || stores.length === 0) return;
 
-    const allowed = new Set(stores.map((s) => s.store_id));
+    const allowed = new Set(stores.map(storeIdOf));
     const hasSelection = hasActiveStoreSelection();
 
     // If active store is not allowed, auto-correct to the first allowed store.
     if (!allowed.has(storeId)) {
-      const fallback = stores[0].store_id;
+      const fallback = storeIdOf(stores[0]);
       setActiveStoreId(fallback);
       toast.message("Store updated", { description: "Switched to an allowed store." });
       return;
@@ -102,7 +93,7 @@ export default function Layout({ children, currentPageName }) {
 
     if (stores.length === 1 && !hasSelection) {
       // Auto-select the only store to keep UX smooth.
-      setActiveStoreId(stores[0].store_id);
+      setActiveStoreId(storeIdOf(stores[0]));
     }
   }, [storesLoading, stores, storeId]);
 
@@ -133,19 +124,19 @@ export default function Layout({ children, currentPageName }) {
             ) : (
               stores.map((s) => (
                 <button
-                  key={s.store_id}
+                  key={storeIdOf(s)}
                   onClick={() => {
-                    setActiveStoreId(s.store_id);
+                    setActiveStoreId(storeIdOf(s));
                     setStoreSwitcherOpen(false);
                   }}
                   className={`w-full text-left px-4 py-3 rounded-xl border touch-target transition-colors ${
-                    s.store_id === storeId
+                    storeIdOf(s) === storeId
                       ? "bg-blue-600 text-white border-blue-600"
                       : "bg-white text-stone-700 border-stone-200"
                   }`}
                 >
                   <div className="font-semibold text-sm">{s.store_name}</div>
-                  <div className={`text-[11px] ${s.store_id === storeId ? "text-blue-100" : "text-stone-400"}`}>{s.store_id}</div>
+                  <div className={`text-[11px] ${storeIdOf(s) === storeId ? "text-blue-100" : "text-stone-400"}`}>{storeIdOf(s)}</div>
                 </button>
               ))
             )}

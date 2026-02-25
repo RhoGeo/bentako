@@ -1,9 +1,17 @@
 import React from "react";
-import { Package, AlertTriangle, XCircle } from "lucide-react";
+import { Package, AlertTriangle, XCircle, SlidersHorizontal } from "lucide-react";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 
-export default function InventoryHealthCard({ totalSellable = 0, trackedCount = 0, lowStockCount = 0, outOfStockCount = 0 }) {
+export default function InventoryHealthCard({
+  totalSellable = 0,
+  trackedCount = 0,
+  lowStockCount = 0,
+  outOfStockCount = 0,
+  negativeStockCount = 0,
+  showNegative = false,
+  onAdjustStock,
+}) {
   return (
     <div className="bg-white rounded-xl border border-stone-100 p-4 shadow-sm">
       <h3 className="text-xs font-semibold text-stone-400 uppercase tracking-wider mb-3">Inventory Health</h3>
@@ -33,6 +41,26 @@ export default function InventoryHealthCard({ totalSellable = 0, trackedCount = 
           </div>
         </Link>
       </div>
+
+      {(onAdjustStock || showNegative) && (
+        <div className="mt-4 flex items-center gap-2">
+          {onAdjustStock && (
+            <button
+              onClick={onAdjustStock}
+              className="flex-1 h-11 rounded-xl bg-stone-900 text-white text-sm font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
+            >
+              <SlidersHorizontal className="w-4 h-4" />
+              Adjust Stock
+            </button>
+          )}
+          {showNegative && (
+            <div className="h-11 px-3 rounded-xl border border-stone-200 bg-stone-50 flex items-center gap-2">
+              <span className="text-[11px] text-stone-500">Negative</span>
+              <span className="text-sm font-bold text-stone-800">{negativeStockCount}</span>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

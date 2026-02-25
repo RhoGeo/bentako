@@ -2,17 +2,20 @@ import React, { useState } from "react";
 import { ArrowLeft, UserCog, Plus, ChevronRight, ShieldCheck, Shield } from "lucide-react";
 import { useNavigate, Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
 import { useCurrentStaff } from "@/components/lib/useCurrentStaff";
-import { can, guard } from "@/components/lib/permissions";
+import { can, guard, PERMISSION_LABELS } from "@/components/lib/permissions";
 import { auditLog } from "@/components/lib/auditLog";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { useActiveStoreId } from "@/components/lib/activeStore";
+import { invokeFunction } from "@/api/posyncClient";
+import { syncNow } from "@/lib/sync";
 
 const ROLE_BADGE = { owner: "bg-yellow-100 text-yellow-800", manager: "bg-blue-100 text-blue-800", cashier: "bg-stone-100 text-stone-600" };
 
@@ -25,18 +28,35 @@ export default function Staff() {
   const [showAdd, setShowAdd] = useState(false);
   const [addForm, setAddForm] = useState({ user_email: "", user_name: "", role: "cashier" });
   const [saving, setSaving] = useState(false);
+  const [permModal, setPermModal] = useState({ open: false, member: null, overrides: {} });
 
   const { data: staffList = [] } = useQuery({
     queryKey: ["staff-list", storeId],
-    queryFn: () => base44.entities.StaffMember.filter({ store_id: storeId, is_active: true }),
+    queryFn: async () => {
+      const res = await invokeFunction("listStoreMembers", { store_id: storeId });
+      const payload = res?.data?.data || res?.data || res;
+      const data = payload?.data || payload;
+      return data?.members || [];
+    },
     initialData: [],
   });
 
   const handleAdd = async () => {
     if (!addForm.user_email.trim()) { toast.error("Email required."); return; }
     setSaving(true);
-    await base44.entities.StaffMember.create({ ...addForm, store_id: storeId, is_active: true });
-    await auditLog("member_role_changed", `Staff added: ${addForm.user_email} as ${addForm.role}`, { actor_email: user?.email, metadata: { new_role: addForm.role, target_email: addForm.user_email } });
+    try {
+      await invokeFunction("addStaffByEmail", {
+        store_id: storeId,
+        user_email: addForm.user_email,
+        role: addForm.role,
+      });
+      await auditLog("member_added", `Staff added: ${addForm.user_email} as ${addForm.role}`, { actor_email: user?.email, metadata: { new_role: addForm.role, target_email: addForm.user_email } });
+      try { await syncNow(storeId); } catch (_e) {}
+    } catch (e) {
+      toast.error(e?.message || "Failed to add staff. User must sign up first.");
+      setSaving(false);
+      return;
+    }
     queryClient.invalidateQueries({ queryKey: ["staff-list", storeId] });
     toast.success("Staff member added!");
     setShowAdd(false);
@@ -45,10 +65,30 @@ export default function Staff() {
   };
 
   const handleDeactivate = async (member) => {
-    await base44.entities.StaffMember.update(member.id, { is_active: false });
-    await auditLog("member_role_changed", `Staff deactivated: ${member.user_email}`, { actor_email: user?.email, metadata: { target_email: member.user_email } });
+    await invokeFunction("updateStoreMember", { store_id: storeId, membership_id: member.id, is_active: false });
+    await auditLog("member_updated", `Staff deactivated: ${member.user_email}`, { actor_email: user?.email, metadata: { target_email: member.user_email } });
+    try { await syncNow(storeId); } catch (_e) {}
     queryClient.invalidateQueries({ queryKey: ["staff-list", storeId] });
     toast.success("Staff member removed.");
+  };
+
+  const openOverrides = (member) => {
+    setPermModal({ open: true, member, overrides: { ...(member?.overrides_json || {}) } });
+  };
+
+  const saveOverrides = async () => {
+    const member = permModal.member;
+    if (!member) return;
+    await invokeFunction("updateStoreMember", {
+      store_id: storeId,
+      membership_id: member.id,
+      overrides_json: permModal.overrides,
+    });
+    await auditLog("member_updated", `Overrides updated: ${member.user_email}`, { actor_email: user?.email, metadata: { target_email: member.user_email } });
+    try { await syncNow(storeId); } catch (_e) {}
+    queryClient.invalidateQueries({ queryKey: ["staff-list", storeId] });
+    toast.success("Overrides saved.");
+    setPermModal({ open: false, member: null, overrides: {} });
   };
 
   return (
@@ -122,6 +162,9 @@ export default function Staff() {
               {canManage && member.user_email !== user?.email && (
                 <button onClick={() => handleDeactivate(member)} className="text-xs text-red-400 hover:text-red-600 ml-1">Remove</button>
               )}
+              {canManage && member.user_email !== user?.email && (
+                <button onClick={() => openOverrides(member)} className="text-xs text-stone-400 hover:text-stone-600 ml-2">Overrides</button>
+              )}
             </div>
           ))}
         </div>
@@ -136,6 +179,44 @@ export default function Staff() {
           </div>
         </Link>
       </div>
+
+      <Dialog
+        open={permModal.open}
+        onOpenChange={(open) => !open && setPermModal({ open: false, member: null, overrides: {} })}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Member Overrides</DialogTitle>
+          </DialogHeader>
+          <p className="text-xs text-stone-500">
+            Overrides apply on top of role defaults. Turn ON only what you want to explicitly allow.
+          </p>
+          <div className="mt-3 space-y-2 max-h-[60vh] overflow-y-auto">
+            {Object.entries(PERMISSION_LABELS).map(([key, meta]) => (
+              <div key={key} className="flex items-start justify-between gap-3 border-b border-stone-50 pb-2">
+                <div className="flex-1">
+                  <div className="text-sm font-medium text-stone-800">{meta.label}</div>
+                  <div className="text-[11px] text-stone-500">{meta.desc}</div>
+                </div>
+                <Switch
+                  checked={permModal.overrides[key] === true}
+                  onCheckedChange={(v) =>
+                    setPermModal((p) => ({ ...p, overrides: { ...p.overrides, [key]: !!v } }))
+                  }
+                />
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 flex gap-2">
+            <Button variant="outline" className="flex-1" onClick={() => setPermModal({ open: false, member: null, overrides: {} })}>
+              Cancel
+            </Button>
+            <Button className="flex-1 bg-blue-600 text-white" onClick={saveOverrides}>
+              Save
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

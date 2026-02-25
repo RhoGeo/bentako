@@ -9,16 +9,24 @@
  *   onAddNew(barcode: string): void
  *   onClose(): void
  */
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { X, Keyboard, ScanLine, PackagePlus, RotateCcw, Check, Zap } from "lucide-react";
+import { X, Keyboard, ScanLine, PackagePlus, RotateCcw, Check, Zap, Info } from "lucide-react";
 import { BrowserMultiFormatReader } from "@zxing/browser";
+import { BarcodeFormat, DecodeHintType } from "@zxing/library";
 import { normalizeBarcode } from "@/components/lib/deviceId";
 import { toast } from "sonner";
 
-export default function BarcodeScannerModal({
+/**
+ * BarcodeScannerModal
+ *
+ * ZXing camera scanner with continuous mode, torch toggle (if supported),
+ * permission denial handling, manual entry fallback, and a not-found panel
+ * that keeps the user in scan flow.
+ */
+export function BarcodeScannerModal({
   open,
   mode = "continuous",
   context = "counter",
@@ -27,11 +35,13 @@ export default function BarcodeScannerModal({
   toastOnScan = true,
   onNotFound,
   onAddNew,
+  overlay,
   onClose,
 }) {
   const [manualMode, setManualMode] = useState(false);
   const [manualInput, setManualInput] = useState("");
   const [lastScanned, setLastScanned] = useState(null);
+  const [lastScannedLabel, setLastScannedLabel] = useState(null);
   const [notFoundBarcode, setNotFoundBarcode] = useState(null);
   const [torchOn, setTorchOn] = useState(false);
   const [torchSupported, setTorchSupported] = useState(false);
@@ -44,9 +54,17 @@ export default function BarcodeScannerModal({
   const lastScanTime = useRef(0);
   const manualInputRef = useRef(null);
 
+  const overlaySummary = useMemo(() => {
+    if (!overlay) return null;
+    const cartQty = Number.isFinite(overlay.cartQty) ? overlay.cartQty : null;
+    const totalCentavos = Number.isFinite(overlay.totalCentavos) ? overlay.totalCentavos : null;
+    const last = overlay.lastItemName ? String(overlay.lastItemName) : null;
+    return { cartQty, totalCentavos, last };
+  }, [overlay]);
+
   const playBeep = useCallback(() => {
     try {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      const AudioCtx = window.AudioContext || window["webkitAudioContext"]; // Safari
       const ctx = new AudioCtx();
       const o = ctx.createOscillator();
       const g = ctx.createGain();
@@ -70,6 +88,7 @@ export default function BarcodeScannerModal({
       lastScanTime.current = now;
 
       setLastScanned(normalized);
+      setLastScannedLabel(null);
       setNotFoundBarcode(null);
 
       // Lookup gate (lets parent decide found vs not-found)
@@ -86,6 +105,7 @@ export default function BarcodeScannerModal({
 
         if (navigator.vibrate) navigator.vibrate(40);
         playBeep();
+        if (label) setLastScannedLabel(String(label));
         if (toastOnScan) toast.success(label ? `Added: ${label}` : "Scanned", { duration: 900 });
 
         if (!handled) {
@@ -113,6 +133,17 @@ export default function BarcodeScannerModal({
       controlsRef.current.stop();
       controlsRef.current = null;
     }
+    // Stop the underlying camera track so torch/camera fully releases.
+    try {
+      const stream = videoRef.current?.srcObject;
+      const tracks = stream?.getTracks?.() || [];
+      tracks.forEach((t) => {
+        try {
+          t.stop();
+        } catch (_e) {}
+      });
+      if (videoRef.current) videoRef.current.srcObject = null;
+    } catch (_e) {}
     readerRef.current = null;
   }, []);
 
@@ -121,7 +152,18 @@ export default function BarcodeScannerModal({
     setCameraError(null);
 
     try {
-      const reader = new BrowserMultiFormatReader();
+      // Limit formats for faster scanning on low-end devices.
+      const hints = new Map();
+      hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+        BarcodeFormat.EAN_13,
+        BarcodeFormat.EAN_8,
+        BarcodeFormat.UPC_A,
+        BarcodeFormat.UPC_E,
+        BarcodeFormat.CODE_128,
+        BarcodeFormat.CODE_39,
+        BarcodeFormat.ITF,
+      ]);
+      const reader = new BrowserMultiFormatReader(hints);
       readerRef.current = reader;
 
       const devices = await BrowserMultiFormatReader.listVideoInputDevices();
@@ -192,6 +234,7 @@ export default function BarcodeScannerModal({
       setManualMode(false);
       setManualInput("");
       setLastScanned(null);
+      setLastScannedLabel(null);
       setNotFoundBarcode(null);
       setTorchOn(false);
       setTorchSupported(false);
@@ -300,7 +343,11 @@ export default function BarcodeScannerModal({
                 <ScanLine className="w-8 h-8 text-white/60" />
               </div>
               <p className="text-white text-sm mb-2">Walang camera permission.</p>
-              <p className="text-white/60 text-xs mb-6">I-on sa settings o manual input muna.</p>
+              <p className="text-white/60 text-xs mb-4">I-on sa browser/app settings o manual input muna.</p>
+              <div className="inline-flex items-center gap-2 text-[11px] text-white/70 bg-white/10 px-3 py-2 rounded-full">
+                <Info className="w-4 h-4" />
+                Tip: allow camera, then tap “Camera” below.
+              </div>
             </div>
           )}
 
@@ -368,10 +415,29 @@ export default function BarcodeScannerModal({
 
         {/* Bottom Bar */}
         <div className="bg-black/80 px-4 py-3 safe-bottom z-10">
-          {lastScanned && (
-            <div className="flex items-center gap-2 mb-3 bg-emerald-900/40 rounded-lg px-3 py-2">
-              <Check className="w-4 h-4 text-emerald-400" />
-              <span className="text-emerald-300 text-xs font-mono">{lastScanned}</span>
+          {(lastScanned || overlaySummary) && (
+            <div className="mb-3 space-y-2">
+              {lastScanned && (
+                <div className="flex items-center justify-between gap-2 bg-emerald-900/40 rounded-lg px-3 py-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span className="text-emerald-300 text-xs font-mono truncate">
+                      {lastScannedLabel ? `${lastScannedLabel} · ${lastScanned}` : lastScanned}
+                    </span>
+                  </div>
+                  {overlaySummary?.cartQty != null && (
+                    <span className="text-emerald-200/80 text-[11px]">Cart: {overlaySummary.cartQty}</span>
+                  )}
+                </div>
+              )}
+              {overlaySummary?.totalCentavos != null && (
+                <div className="flex items-center justify-between bg-white/10 rounded-lg px-3 py-2">
+                  <span className="text-white/70 text-[11px]">Total</span>
+                  <span className="text-white text-sm font-semibold">
+                    ₱{(overlaySummary.totalCentavos / 100).toFixed(2)}
+                  </span>
+                </div>
+              )}
             </div>
           )}
           <div className="flex gap-3">
@@ -405,3 +471,5 @@ export default function BarcodeScannerModal({
     </Dialog>
   );
 }
+
+export default BarcodeScannerModal;

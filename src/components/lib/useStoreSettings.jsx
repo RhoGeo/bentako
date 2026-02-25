@@ -1,9 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
-import { base44 } from "@/api/base44Client";
+import { getDeviceId } from "@/lib/ids/deviceId";
+import { getLocalMeta } from "@/lib/db";
 
 export const SAFE_DEFAULTS = {
   pin_required_void_refund: true,
+  // Back-compat: some deployments store combined flag
   pin_required_price_discount_override: true,
+  // Preferred Step 11 flags
+  pin_required_discount_override: true,
+  pin_required_price_override: true,
   pin_required_stock_adjust: true,
   pin_required_export: true,
   pin_required_device_revoke: true,
@@ -13,16 +18,28 @@ export const SAFE_DEFAULTS = {
   auto_sync_after_event: true,
 };
 
+/**
+ * Store settings source of truth (offline-first):
+ * - pullSyncEvents returns updates.store_settings
+ * - SyncManager stores it into Dexie local_meta.store_settings_json
+ */
 export function useStoreSettings(storeId = "default") {
+  const device_id = getDeviceId();
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["store-settings", storeId],
+    queryKey: ["store-settings", storeId, device_id],
+    enabled: !!storeId && !!device_id,
+    staleTime: 15_000,
     queryFn: async () => {
-      const results = await base44.entities.StoreSettings.filter({ store_id: storeId });
-      return results[0] || null;
+      const meta = await getLocalMeta(storeId, device_id);
+      return meta?.store_settings_json || null;
     },
-    staleTime: 60_000,
   });
 
-  const settings = data ? { ...SAFE_DEFAULTS, ...data } : SAFE_DEFAULTS;
+  const merged = data ? { ...SAFE_DEFAULTS, ...data } : { ...SAFE_DEFAULTS };
+  // If legacy combined flag exists but new ones are missing, mirror it.
+  const legacy = merged.pin_required_price_discount_override;
+  if (merged.pin_required_discount_override === undefined) merged.pin_required_discount_override = legacy;
+  if (merged.pin_required_price_override === undefined) merged.pin_required_price_override = legacy;
+  const settings = merged;
   return { settings, isLoading, isError, isUsingSafeDefaults: !data, rawSettings: data };
 }

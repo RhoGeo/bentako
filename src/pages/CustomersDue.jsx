@@ -1,8 +1,8 @@
 import React, { useState } from "react";
-import { base44 } from "@/api/base44Client";
+import { invokeFunction } from "@/api/posyncClient";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import CentavosDisplay from "@/components/shared/CentavosDisplay";
-import { Users, ArrowLeft, CreditCard, Clock, ChevronRight, Banknote, Smartphone } from "lucide-react";
+import { Users, ArrowLeft, CreditCard, Clock, ChevronRight, Banknote, Smartphone, Landmark, WalletCards } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,8 +17,8 @@ import { auditLog } from "@/components/lib/auditLog";
 import { toast } from "sonner";
 import { differenceInDays } from "date-fns";
 import { useActiveStoreId } from "@/components/lib/activeStore";
-import { enqueueOfflineEvent } from "@/components/lib/db";
-import { generateEventId, getDeviceId } from "@/components/lib/deviceId";
+import { enqueueOfflineEvent, getAllCachedCustomers, listQueuedCustomerPayments, patchCachedCustomerSnapshot } from "@/lib/db";
+import { generateEventId, getDeviceId } from "@/lib/ids/deviceId";
 import { syncNow } from "@/components/lib/syncManager";
 
 export default function CustomersDue() {
@@ -35,23 +35,34 @@ export default function CustomersDue() {
   const [saving, setSaving] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
 
+  // Offline-first: read customers from Dexie cache (kept fresh by SyncManager pullUpdates).
   const { data: customers = [] } = useQuery({
-    queryKey: ["customers", storeId],
-    queryFn: () => base44.entities.Customer.filter({ store_id: storeId, is_active: true }),
+    queryKey: ["cached-customers", storeId],
+    queryFn: () => getAllCachedCustomers(storeId),
+    refetchInterval: 8_000,
     initialData: [],
   });
 
-  const { data: payments = [] } = useQuery({
-    queryKey: ["payments", selectedCustomer?.id],
-    queryFn: () => base44.entities.Payment.filter({ store_id: storeId, customer_id: selectedCustomer?.id }),
-    enabled: !!selectedCustomer,
-    initialData: [],
+  // Online-only: full ledger (due sales + customer payments).
+  const { data: ledgerResp = null } = useQuery({
+    queryKey: ["customer-ledger", storeId, selectedCustomer?.id],
+    queryFn: async () => {
+      const res = await invokeFunction("getCustomerLedger", {
+        store_id: storeId,
+        customer_id: selectedCustomer?.id,
+      });
+      return res?.data?.data || res?.data || null;
+    },
+    enabled: !!selectedCustomer && !!storeId && navigator.onLine,
+    staleTime: 10_000,
+    initialData: null,
   });
 
-  const { data: customerSales = [] } = useQuery({
-    queryKey: ["customer-sales", selectedCustomer?.id],
-    queryFn: () => base44.entities.Sale.filter({ store_id: storeId, customer_id: selectedCustomer?.id, status: "due" }),
-    enabled: !!selectedCustomer,
+  const { data: queuedPayments = [] } = useQuery({
+    queryKey: ["queued-customer-payments", storeId, selectedCustomer?.id],
+    queryFn: () => listQueuedCustomerPayments(storeId, selectedCustomer?.id),
+    enabled: !!selectedCustomer && !!storeId,
+    refetchInterval: 6_000,
     initialData: [],
   });
 
@@ -66,7 +77,14 @@ export default function CustomersDue() {
       if (filter === "31+") return days > 30;
       return true;
     })
-    .sort((a, b) => b.balance_due_centavos - a.balance_due_centavos);
+    .sort((a, b) => {
+      // Primary: highest due. Secondary: oldest activity (more days).
+      const byDue = Number(b.balance_due_centavos || 0) - Number(a.balance_due_centavos || 0);
+      if (byDue !== 0) return byDue;
+      const la = a.last_transaction_date ? new Date(a.last_transaction_date) : new Date(a.created_date);
+      const lb = b.last_transaction_date ? new Date(b.last_transaction_date) : new Date(b.created_date);
+      return differenceInDays(now, lb) - differenceInDays(now, la);
+    });
 
   const totalDue = dueCustomers.reduce((s, c) => s + c.balance_due_centavos, 0);
 
@@ -105,6 +123,15 @@ export default function CustomersDue() {
       created_at_device: Date.now(),
     });
 
+    // Optimistic local balance update (offline-first UX)
+    try {
+      await patchCachedCustomerSnapshot(storeId, customer.id, {
+        ...customer,
+        balance_due_centavos: Math.max(0, Number(customer.balance_due_centavos || 0) - amountCentavos),
+        last_transaction_date: new Date().toISOString(),
+      });
+    } catch (_e) {}
+
     if (isOnline) {
       syncNow(storeId).catch(() => {});
     }
@@ -116,8 +143,9 @@ export default function CustomersDue() {
       metadata: { method: payForm.method, offline: !isOnline, event_id },
     });
 
-    queryClient.invalidateQueries({ queryKey: ["customers", storeId] });
-    queryClient.invalidateQueries({ queryKey: ["payments", customer.id] });
+    queryClient.invalidateQueries({ queryKey: ["cached-customers", storeId] });
+    queryClient.invalidateQueries({ queryKey: ["customer-ledger", storeId, customer.id] });
+    queryClient.invalidateQueries({ queryKey: ["queued-customer-payments", storeId, customer.id] });
     toast.success(isOnline ? `Payment recorded!` : "Queued — magsi-sync pag online.");
     setPaymentSheet({ open: false, customer: null });
     setSaving(false);
@@ -145,9 +173,33 @@ export default function CustomersDue() {
 
   // Customer detail view
   if (selectedCustomer) {
+    const dueSales = ledgerResp?.due_sales || [];
+    const customerPayments = ledgerResp?.customer_payments || [];
+
     const ledger = [
-      ...customerSales.map(s => ({ type: "sale", date: s.sale_date || s.created_date, amount: s.total_centavos, ref: s.client_tx_id, by: s.cashier_email })),
-      ...payments.map(p => ({ type: "payment", date: p.created_date, amount: -p.amount_centavos, ref: p.client_event_id, by: p.recorded_by, status: p.status })),
+      ...dueSales.map((s) => ({
+        type: "sale",
+        date: s.sale_date,
+        amount: Number(s.balance_due_centavos || s.total_centavos || 0),
+        ref: s.receipt_number || s.client_tx_id || s.sale_id,
+        by: s.cashier_name,
+      })),
+      ...customerPayments.map((p) => ({
+        type: "payment",
+        date: p.created_at,
+        amount: -Number(p.amount_centavos || 0),
+        ref: p.payment_request_id || p.payment_id,
+        by: p.recorded_by_name,
+        status: "synced",
+      })),
+      ...queuedPayments.map((p) => ({
+        type: "payment",
+        date: new Date(p.created_at_device).toISOString(),
+        amount: -Number(p.amount_centavos || 0),
+        ref: p.event_id,
+        by: user?.email,
+        status: p.status || "queued",
+      })),
     ].sort((a, b) => new Date(b.date) - new Date(a.date));
 
     return (
@@ -178,6 +230,11 @@ export default function CustomersDue() {
           <div>
             <p className="text-xs font-semibold text-stone-400 uppercase tracking-wider mb-3">Ledger</p>
             <div className="bg-white rounded-xl border border-stone-100 divide-y divide-stone-50">
+              {!navigator.onLine && (
+                <div className="px-4 py-3 text-xs text-amber-700 bg-amber-50">
+                  Offline — showing queued payments only. Connect to internet to load full ledger.
+                </div>
+              )}
               {ledger.length === 0 ? (
                 <div className="text-center py-8 text-stone-400 text-sm">No transactions.</div>
               ) : ledger.map((entry, i) => (
@@ -189,6 +246,8 @@ export default function CustomersDue() {
                     <p className="text-xs font-medium text-stone-700">{entry.type === "payment" ? "Payment" : "Due Sale"}</p>
                     <p className="text-[10px] text-stone-400">{new Date(entry.date).toLocaleDateString("en-PH")} · {entry.by || "—"}</p>
                     {entry.status === "queued" && <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">Queued</span>}
+                    {entry.status === "failed_retry" && <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">Retry</span>}
+                    {entry.status === "failed_permanent" && <span className="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded">Failed</span>}
                   </div>
                   <CentavosDisplay
                     centavos={Math.abs(entry.amount)}
@@ -287,7 +346,13 @@ export default function CustomersDue() {
             <div>
               <Label className="text-xs text-stone-500 mb-1.5 block">Method</Label>
               <div className="flex gap-2">
-                {[{ k: "cash", label: "Cash", icon: Banknote }, { k: "gcash", label: "GCash", icon: Smartphone }, { k: "maya", label: "Maya", icon: CreditCard }].map(({ k, label, icon: Icon }) => (
+                {[
+                  { k: "cash", label: "Cash", icon: Banknote },
+                  { k: "gcash", label: "GCash", icon: Smartphone },
+                  { k: "bank_transfer", label: "Bank", icon: Landmark },
+                  { k: "card", label: "Card", icon: WalletCards },
+                  { k: "other", label: "Other", icon: CreditCard },
+                ].map(({ k, label, icon: Icon }) => (
                   <button key={k} onClick={() => setPayForm(f => ({ ...f, method: k }))}
                     className={`flex-1 py-3 rounded-xl text-xs font-semibold flex flex-col items-center gap-1 transition-all ${payForm.method === k ? "bg-blue-100 text-blue-700 border-2 border-blue-300" : "bg-stone-50 text-stone-500 border-2 border-transparent"}`}>
                     <Icon className="w-4 h-4" />{label}

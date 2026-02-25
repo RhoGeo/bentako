@@ -7,12 +7,12 @@
  */
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.6";
 import { ok, fail } from "./_response.ts";
+import { requireAuth } from "./_lib/auth.ts";
 
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-    const user = await base44.auth.me();
-    if (!user) return fail("UNAUTHORIZED", "Unauthorized", null, 401);
+    const { user } = await requireAuth(base44, req);
 
     // Affiliate is user-scoped.
     const user_id = user.id;

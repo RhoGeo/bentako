@@ -11,7 +11,8 @@ import { auditLog } from "@/components/lib/auditLog";
 import { toast } from "sonner";
 import { useActiveStoreId } from "@/components/lib/activeStore";
 import { useStoreSettings } from "@/components/lib/useStoreSettings";
-import { base44 } from "@/api/base44Client";
+import { invokeFunction } from "@/api/posyncClient";
+import { syncNow } from "@/lib/sync";
 
 const PERMISSION_GROUPS = [
   { label: "Financial", keys: ["financial_visibility", "reports_access", "reports_drilldowns"] },
@@ -57,17 +58,17 @@ export default function Permissions() {
   const saveRole = async (role) => {
     if (!storeId) { toast.error("No active store."); return; }
     const changedKeys = Object.keys(templates[role]).filter(k => templates[role][k] !== ROLE_TEMPLATES[role][k]);
-    // Persist into StoreSettings so server + other devices can read.
-    const rows = await base44.entities.StoreSettings.filter({ store_id: storeId });
-    const existing = rows?.[0];
     const patch = role === "manager"
       ? { role_permissions_manager_json: templates.manager }
       : { role_permissions_cashier_json: templates.cashier };
-    if (existing?.id) {
-      await base44.entities.StoreSettings.update(existing.id, patch);
-    } else {
-      await base44.entities.StoreSettings.create({ store_id: storeId, ...patch });
-    }
+
+    await invokeFunction("updateStorePermissions", {
+      store_id: storeId,
+      ...patch,
+    });
+
+    // Pull store_settings into Dexie/local_meta
+    try { await syncNow(storeId); } catch (_e) {}
 
     await auditLog("permissions_updated", `Permissions updated for role: ${role}`, { actor_email: user?.email, metadata: { role, changed_keys: changedKeys, store_id: storeId } });
     toast.success(`${role} permissions saved.`);

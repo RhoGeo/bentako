@@ -42,6 +42,10 @@ export function jsonFailFromError(err: any): Response {
   if (code === "FORBIDDEN") return jsonFail(403, code, message);
   if (code === "PIN_REQUIRED") return jsonFail(403, code, message);
   if (code === "BAD_REQUEST") return jsonFail(400, code, message);
+  if (typeof code === "string" && code.startsWith("INVITE_")) return jsonFail(400, code, message);
+  if (code === "EMAIL_EXISTS") return jsonFail(409, code, message);
+  if (code === "INVALID_CREDENTIALS") return jsonFail(401, code, message);
+  if (code === "SCHEMA_MISSING") return jsonFail(500, code, message, err?.details);
 
   // Some SDK errors expose an HTTP status
   const status = Number(err?.status || err?.response?.status || 0);

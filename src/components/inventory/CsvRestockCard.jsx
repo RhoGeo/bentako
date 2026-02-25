@@ -5,7 +5,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { toast } from "sonner";
 import OwnerPinModal from "@/components/global/OwnerPinModal";
 
-import { enqueueOfflineEvent, patchCachedProductSnapshot } from "@/components/lib/db";
+import { enqueueOfflineEvent, patchCachedProductSnapshot } from "@/lib/db";
 import { generateEventId, getDeviceId, normalizeBarcode } from "@/components/lib/deviceId";
 
 function csvEscape(v) {

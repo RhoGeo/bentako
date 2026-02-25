@@ -1,15 +1,17 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.18";
 import { jsonOk, jsonFail, asErrorMessage } from "./_lib/response.ts";
+import { requireAuth } from "./_lib/auth.ts";
 import { requireActiveStaff } from "./_lib/staff.ts";
 import { requirePermissionOrOwnerPin } from "./_lib/guard.ts";
 import { startIdempotentOperation, markIdempotentApplied, markIdempotentFailed } from "./_lib/idempotency.ts";
 import { applyStockDeltaWithLedger } from "./_lib/stockAtomic.ts";
+import { sumQtyByProduct } from "./_lib/saleItems.ts";
+import { logActivityEvent } from "./_lib/activity.ts";
 
-Deno.serve(async (req) => {
+export async function refundSale(req: Request): Promise<Response> {
   const base44 = createClientFromRequest(req);
   try {
-    const user = await base44.auth.me();
-    if (!user) return jsonFail(401, "UNAUTHORIZED", "Unauthorized");
+    const { user } = await requireAuth(base44, req);
 
     const body = await req.json();
     const { store_id, sale_id, refund_request_id, reason, owner_pin_proof } = body || {};
@@ -46,13 +48,14 @@ Deno.serve(async (req) => {
     }
 
     const items = Array.isArray(sale.items) ? sale.items : [];
-    // restore stock for completed/due
+    // restore stock for completed/due — apply ONCE per product
     if (sale.status === "completed" || sale.status === "due") {
-      for (const it of items) {
+      const qtyByProduct = sumQtyByProduct(items);
+      for (const [product_id, qty] of Object.entries(qtyByProduct)) {
         await applyStockDeltaWithLedger(base44, {
           store_id,
-          product_id: it.product_id,
-          delta_qty: Number(it.qty || 0),
+          product_id,
+          delta_qty: Number(qty),
           reason: "refund",
           reference_type: "refund",
           reference_id: sale_id,
@@ -84,6 +87,19 @@ Deno.serve(async (req) => {
 
     const result = { sale_id, status: "refunded" };
     await markIdempotentApplied(base44, record.id, result);
+
+    await logActivityEvent(base44, {
+      store_id,
+      event_type: "sale_refunded",
+      description: "Sale refunded",
+      entity_id: sale_id,
+      user_id: user.user_id,
+      actor_email: user.email,
+      device_id: sale.device_id || null,
+      amount_centavos: Number(sale.total_centavos || 0),
+      metadata_json: { reason: reason || "" },
+    });
+
     return jsonOk(result);
   } catch (err) {
     try {
@@ -99,4 +115,6 @@ Deno.serve(async (req) => {
     const status = code === "UNAUTHORIZED" ? 401 : code === "FORBIDDEN" ? 403 : code === "PIN_REQUIRED" ? 403 : 500;
     return jsonFail(status, code, msg);
   }
-});
+}
+
+Deno.serve(refundSale);

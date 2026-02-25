@@ -1,15 +1,16 @@
 import { createClientFromRequest } from "npm:@base44/sdk@0.8.18";
 import { jsonOk, jsonFail, jsonFailFromError } from "./_lib/response.ts";
+import { requireAuth } from "./_lib/auth.ts";
 import { requireActiveStaff } from "./_lib/staff.ts";
 import { requirePermissionOrOwnerPin } from "./_lib/guard.ts";
 import { startIdempotentOperation, markIdempotentApplied } from "./_lib/idempotency.ts";
 import { applyStockDeltaWithLedger, ADJUSTMENT_REASONS } from "./_lib/stockAtomic.ts";
+import { logActivityEvent } from "./_lib/activity.ts";
 
-Deno.serve(async (req) => {
+export async function adjustStock(req: Request): Promise<Response> {
   const base44 = createClientFromRequest(req);
   try {
-    const user = await base44.auth.me();
-    if (!user) return jsonFail(401, "UNAUTHORIZED", "Unauthorized");
+    const { user } = await requireAuth(base44, req);
 
     const body = await req.json();
     const { store_id, product_id, delta_qty, reason, adjustment_id, device_id, owner_pin_proof } = body || {};
@@ -51,8 +52,22 @@ Deno.serve(async (req) => {
 
     const result = { product_id, new_qty: res.new_qty };
     await markIdempotentApplied(base44, record.id, result);
+
+    await logActivityEvent(base44, {
+      store_id,
+      event_type: "stock_adjusted",
+      description: `Stock adjusted (${reason})`,
+      entity_id: product_id,
+      user_id: user.user_id,
+      actor_email: user.email,
+      device_id: device_id || null,
+      metadata_json: { delta_qty: Number(delta_qty), reason, adjustment_id },
+    });
+
     return jsonOk(result);
   } catch (err) {
     return jsonFailFromError(err);
   }
-});
+}
+
+Deno.serve(adjustStock);
