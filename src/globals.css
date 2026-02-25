@@ -1,0 +1,82 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --pos-primary: #1e40af;
+  --pos-primary-light: #3b82f6;
+  --pos-accent: #f59e0b;
+  --pos-success: #059669;
+  --pos-warning: #ea580c;
+  --pos-danger: #dc2626;
+  --pos-bg: #fafaf9;
+  --pos-card: #ffffff;
+  --pos-text: #1c1917;
+  --pos-text-muted: #78716c;
+  --pos-border: #e7e5e4;
+}
+
+body {
+  background-color: var(--pos-bg);
+  color: var(--pos-text);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+/* Large touch targets */
+.touch-target {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* Numeric input styling */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* Bottom safe area for mobile */
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Smooth scrolling */
+.scroll-smooth {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Prevent text selection on buttons */
+.no-select {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 20 14.3% 4.1%;
+    --card: 0 0% 100%;
+    --card-foreground: 20 14.3% 4.1%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 20 14.3% 4.1%;
+    --primary: 217 91% 40%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 20 5.9% 90%;
+    --secondary-foreground: 24 9.8% 10%;
+    --muted: 20 5.9% 90%;
+    --muted-foreground: 25 5.3% 44.7%;
+    --accent: 43 96% 56%;
+    --accent-foreground: 24 9.8% 10%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 60 9.1% 97.8%;
+    --border: 20 5.9% 90%;
+    --input: 20 5.9% 90%;
+    --ring: 217 91% 40%;
+    --radius: 0.75rem;
+  }
+}

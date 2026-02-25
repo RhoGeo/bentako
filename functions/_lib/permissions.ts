@@ -1,0 +1,58 @@
+export const ROLE_TEMPLATES: Record<string, Record<string, boolean>> = {
+  owner: {
+    transaction_complete: true,
+    transaction_void: true,
+    transaction_refund: true,
+    inventory_adjust_stock: true,
+    inventory_create_edit: true,
+    reports_access: true,
+    reports_drilldowns: true,
+    financial_visibility: true,
+    customers_record_payment: true,
+    customers_export: true,
+    permissions_manage: true,
+    staff_manage: true,
+    devices_manage: true,
+    store_archive: true,
+    referral_apply_code: true,
+  },
+  manager: {
+    transaction_complete: true,
+    transaction_void: false,
+    transaction_refund: false,
+    inventory_adjust_stock: true,
+    inventory_create_edit: true,
+    reports_access: true,
+    reports_drilldowns: false,
+    financial_visibility: true,
+    customers_record_payment: true,
+    customers_export: false,
+    permissions_manage: false,
+    staff_manage: false,
+    devices_manage: false,
+    store_archive: false,
+    referral_apply_code: false,
+  },
+  cashier: {
+    transaction_complete: true,
+    transaction_void: false,
+    transaction_refund: false,
+    inventory_adjust_stock: false,
+    inventory_create_edit: false,
+    reports_access: false,
+    reports_drilldowns: false,
+    financial_visibility: false,
+    customers_record_payment: false,
+    customers_export: false,
+    permissions_manage: false,
+    staff_manage: false,
+    devices_manage: false,
+    store_archive: false,
+    referral_apply_code: false,
+  },
+};
+
+export function resolvePermissions(role: string, overrides?: Record<string, boolean>) {
+  const base = ROLE_TEMPLATES[role] || ROLE_TEMPLATES.cashier;
+  return { ...base, ...(overrides || {}) };
+}

@@ -1,0 +1,39 @@
+{
+  "stores": [
+    { "store_id": "default", "store_name": "My Sari-Sari" }
+  ],
+  "categories": [
+    { "store_id": "default", "name": "Drinks" },
+    { "store_id": "default", "name": "Snacks" },
+    { "store_id": "default", "name": "Hygiene" }
+  ],
+  "products": [
+    {
+      "store_id": "default",
+      "product_type": "single",
+      "name": "Coke 1.5L",
+      "barcode": "4800012345678",
+      "selling_price_centavos": 7500,
+      "cost_price_centavos": 6500,
+      "track_stock": true,
+      "stock_quantity": 12,
+      "low_stock_threshold": 3,
+      "is_active": true
+    },
+    {
+      "store_id": "default",
+      "product_type": "single",
+      "name": "Lucky Me Pancit Canton",
+      "barcode": "4807777123456",
+      "selling_price_centavos": 1800,
+      "cost_price_centavos": 1500,
+      "track_stock": true,
+      "stock_quantity": 40,
+      "low_stock_threshold": 10,
+      "is_active": true
+    }
+  ],
+  "customers": [
+    { "store_id": "default", "name": "Juan Dela Cruz", "allow_utang": true, "balance_due_centavos": 0 }
+  ]
+}
