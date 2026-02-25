@@ -47,42 +47,52 @@
  *
  * The mainPage value must match a key in the PAGES object exactly.
  */
-import Counter from './pages/Counter';
-import Today from './pages/Today';
-import Reports from './pages/Reports';
-import Items from './pages/Items';
-import ProductForm from './pages/ProductForm';
-import More from './pages/More';
-import CustomersDue from './pages/CustomersDue';
-import SyncStatus from './pages/SyncStatus';
-import Staff from './pages/Staff';
-import StoreSettings from './pages/StoreSettings';
-import Devices from './pages/Devices';
 import Affiliate from './pages/Affiliate';
+import CombinedView from './pages/CombinedView';
+import Counter from './pages/Counter';
+import CustomersDue from './pages/CustomersDue';
+import Devices from './pages/Devices';
+import Items from './pages/Items';
+import More from './pages/More';
+import OperatingPolicy from './pages/OperatingPolicy';
 import Payouts from './pages/Payouts';
 import Permissions from './pages/Permissions';
-import OperatingPolicy from './pages/OperatingPolicy';
+import ProductForm from './pages/ProductForm';
+import Reports from './pages/Reports';
 import RestockChecklist from './pages/RestockChecklist';
+import SalesLog from './pages/SalesLog';
+import Staff from './pages/Staff';
+import StoreSettings from './pages/StoreSettings';
+import StoreSwitcher from './pages/StoreSwitcher';
+import SyncStatus from './pages/SyncStatus';
+import Today from './pages/Today';
+import Onboarding from './pages/Onboarding';
+import MyStores from './pages/MyStores';
 import __Layout from './Layout.jsx';
 
 
 export const PAGES = {
-    "Counter": Counter,
-    "Today": Today,
-    "Reports": Reports,
-    "Items": Items,
-    "ProductForm": ProductForm,
-    "More": More,
-    "CustomersDue": CustomersDue,
-    "SyncStatus": SyncStatus,
-    "Staff": Staff,
-    "StoreSettings": StoreSettings,
-    "Devices": Devices,
     "Affiliate": Affiliate,
+    "CombinedView": CombinedView,
+    "Counter": Counter,
+    "CustomersDue": CustomersDue,
+    "Devices": Devices,
+    "Items": Items,
+    "More": More,
+    "OperatingPolicy": OperatingPolicy,
     "Payouts": Payouts,
     "Permissions": Permissions,
-    "OperatingPolicy": OperatingPolicy,
+    "ProductForm": ProductForm,
+    "Reports": Reports,
     "RestockChecklist": RestockChecklist,
+    "SalesLog": SalesLog,
+    "Staff": Staff,
+    "StoreSettings": StoreSettings,
+    "StoreSwitcher": StoreSwitcher,
+    "SyncStatus": SyncStatus,
+    "Today": Today,
+    "Onboarding": Onboarding,
+    "MyStores": MyStores,
 }
 
 export const pagesConfig = {

@@ -69,8 +69,21 @@ export default function Layout({ children, currentPageName }) {
 
   // Multi-store enforcement: if user has multiple stores and no explicit selection, force pick.
   useEffect(() => {
+    // Wait until the query is truly done (not just loading) before acting.
     if (storesLoading) return;
-    if (!stores || stores.length === 0) return;
+
+    // No stores at all → send to onboarding (only after query settled and user is loaded)
+    if (!stores || stores.length === 0) {
+      const isOnboarding = window.location.pathname.includes("Onboarding");
+      if (!isOnboarding) {
+        // Small delay to avoid false redirects on slow auth load
+        const t = setTimeout(() => {
+          window.location.href = createPageUrl("Onboarding");
+        }, 500);
+        return () => clearTimeout(t);
+      }
+      return;
+    }
 
     const allowed = new Set(stores.map((s) => s.store_id));
     const hasSelection = hasActiveStoreSelection();

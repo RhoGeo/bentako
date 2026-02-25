@@ -86,12 +86,6 @@ export default function Onboarding() {
       return;
     }
 
-    if (settings?.[0]?.is_archived) {
-      toast.error("This store is archived. Ask the owner to unarchive it.");
-      setLoading(false);
-      return;
-    }
-
     // Check if already a member
     const existing = await base44.entities.StaffMember.filter({
       store_id: staffStoreId.trim(),

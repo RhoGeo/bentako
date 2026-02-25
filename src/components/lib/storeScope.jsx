@@ -37,26 +37,10 @@ export function useMyStores() {
     queryFn: async () => {
       try {
         // 1) Memberships → Stores
-        // Preferred: user_id (Supabase Auth)
-        let memberships = [];
-        if (user?.id) {
-          try {
-            memberships = await base44.entities.StoreMembership.filter({
-              user_id: user.id,
-            });
-          } catch (_e) {
-            memberships = [];
-          }
-        }
-
-        // Fallback: user_email (older/Base44-style)
-        if ((!memberships || memberships.length === 0) && user?.email) {
-          memberships = await base44.entities.StoreMembership.filter({
-            user_email: user.email,
-            is_active: true,
-          });
-        }
-
+        const memberships = await base44.entities.StoreMembership.filter({
+          user_email: user.email,
+          is_active: true,
+        });
         if (memberships?.length) {
           // Avoid relying on complex query operators; fetch store records one-by-one.
           const stores = [];
@@ -64,7 +48,7 @@ export function useMyStores() {
             if (!m.store_id) continue;
             try {
               const found = await base44.entities.Store.filter({ id: m.store_id });
-              if (found?.[0]) stores.push({ ...found[0], store_name: found[0].name || found[0].store_name, membership: m });
+              if (found?.[0]) stores.push({ ...found[0], membership: m });
               else stores.push({ id: m.store_id, store_name: m.store_name || "Store", membership: m });
             } catch (_e) {
               stores.push({ id: m.store_id, store_name: m.store_name || "Store", membership: m });

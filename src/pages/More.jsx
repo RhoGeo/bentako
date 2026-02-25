@@ -13,10 +13,18 @@ import {
   LogOut,
   BookOpen,
   ShieldCheck,
+  Store,
 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 
 const menuItems = [
+  {
+    label: "My Stores",
+    icon: Store,
+    page: "MyStores",
+    color: "text-blue-600",
+    bgColor: "bg-blue-50",
+  },
   {
     label: "Operating Policy",
     icon: BookOpen,

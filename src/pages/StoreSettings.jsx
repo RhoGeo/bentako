@@ -131,6 +131,20 @@ export default function StoreSettings() {
           <h2 className="text-xs font-semibold text-stone-400 uppercase tracking-wider mb-3">Store Profile</h2>
           <div className="bg-white rounded-xl border border-stone-100 p-4 space-y-4">
             <div>
+              <Label className="text-xs text-stone-500 mb-1.5 block">Store ID (share with staff)</Label>
+              <div className="flex items-center gap-2">
+                <Input value={storeId} readOnly className="h-11 font-mono text-sm bg-stone-50 text-stone-500" />
+                <Button
+                  variant="outline"
+                  className="h-11 px-3 flex-shrink-0"
+                  onClick={() => { navigator.clipboard.writeText(storeId); toast.success("Store ID copied!"); }}
+                  type="button"
+                >
+                  Copy
+                </Button>
+              </div>
+            </div>
+            <div>
               <Label className="text-xs text-stone-500 mb-1.5 block">Store Name</Label>
               <Input value={form.store_name} onChange={(e) => updateField("store_name", e.target.value)} className="h-11" disabled={!isOwner} />
             </div>

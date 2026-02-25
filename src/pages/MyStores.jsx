@@ -34,9 +34,9 @@ export default function MyStores() {
         (mems || []).map(async (m) => {
           try {
             const settings = await base44.entities.StoreSettings.filter({ store_id: m.store_id });
-            return { ...m, store_name: settings?.[0]?.store_name || m.store_id, is_archived: !!settings?.[0]?.is_archived };
+            return { ...m, store_name: settings?.[0]?.store_name || m.store_id };
           } catch {
-            return { ...m, store_name: m.store_id, is_archived: false };
+            return { ...m, store_name: m.store_id };
           }
         })
       );
@@ -69,8 +69,6 @@ export default function MyStores() {
       pin_required_stock_adjust: true,
       pin_required_export: true,
       pin_required_device_revoke: true,
-      pin_required_staff_manage: true,
-      pin_required_store_archive: true,
       allow_negative_stock: false,
       low_stock_threshold_default: 5,
       auto_sync_on_reconnect: true,
@@ -104,47 +102,6 @@ export default function MyStores() {
     navigate(createPageUrl("Counter"), { replace: true });
   };
 
-  const handleUnarchive = async (storeId) => {
-    await base44.functions.invoke("unarchiveStore", { store_id: storeId });
-    toast.success("Store unarchived.");
-    queryClient.invalidateQueries({ queryKey: ["my-memberships"] });
-    queryClient.invalidateQueries({ queryKey: ["user-stores"] });
-    refetch();
-  };
-
-  const handleLeave = async (membership) => {
-    if (!membership?.id) return;
-
-    // Owners can only leave if there is another active owner.
-    if (membership.role === "owner") {
-      const owners = await base44.entities.StaffMember.filter({
-        store_id: membership.store_id,
-        role: "owner",
-        is_active: true,
-      });
-      if ((owners || []).length <= 1) {
-        toast.error("You are the last owner. Add another owner before leaving this store.");
-        return;
-      }
-    }
-
-    if (!window.confirm(`Leave store ${membership.store_name || membership.store_id}?`)) return;
-
-    await base44.entities.StaffMember.update(membership.id, { is_active: false });
-    toast.success("Left store.");
-
-    queryClient.invalidateQueries({ queryKey: ["my-memberships"] });
-    queryClient.invalidateQueries({ queryKey: ["user-stores"] });
-
-    // If you left the active store, switch to the first remaining store
-    if (membership.store_id === activeStoreId) {
-      const remaining = memberships.filter((m) => m.store_id !== membership.store_id);
-      if (remaining?.[0]?.store_id) setActiveStoreId(remaining[0].store_id);
-      navigate(createPageUrl("Counter"), { replace: true });
-    }
-    refetch();
-  };
-
   return (
     <div className="pb-24">
       <div className="sticky top-0 bg-white/95 backdrop-blur-sm border-b border-stone-100 px-4 py-3 flex items-center gap-3 z-20">
@@ -168,7 +125,6 @@ export default function MyStores() {
         ) : (
           memberships.map((m) => {
             const isActive = m.store_id === activeStoreId;
-            const isArchived = !!m.is_archived;
             return (
               <div
                 key={m.store_id}
@@ -184,9 +140,6 @@ export default function MyStores() {
                       {isActive && (
                         <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">Active</span>
                       )}
-                      {isArchived && (
-                        <span className="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-medium">Archived</span>
-                      )}
                     </div>
                     <div className="flex items-center gap-1 mt-0.5">
                       <p className="text-[11px] text-stone-400 font-mono truncate">{m.store_id}</p>
@@ -201,7 +154,7 @@ export default function MyStores() {
                   </div>
                 </div>
 
-                {!isActive && !isArchived && (
+                {!isActive && (
                   <Button
                     variant="outline"
                     className="w-full mt-3 h-9 text-sm"
@@ -210,24 +163,6 @@ export default function MyStores() {
                     Switch to this Store
                   </Button>
                 )}
-
-                {isArchived && m.role === "owner" && (
-                  <Button
-                    variant="outline"
-                    className="w-full mt-3 h-9 text-sm"
-                    onClick={() => handleUnarchive(m.store_id)}
-                  >
-                    Unarchive Store
-                  </Button>
-                )}
-
-                <Button
-                  variant="ghost"
-                  className="w-full mt-2 h-9 text-xs text-red-600 hover:bg-red-50"
-                  onClick={() => handleLeave(m)}
-                >
-                  Leave this store
-                </Button>
               </div>
             );
           })

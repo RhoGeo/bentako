@@ -24,7 +24,7 @@ import {
   upsertCachedProducts,
 } from "@/components/lib/db";
 
-import { getInventoryTag, getStockQty, normalizeForMatch } from "@/components/inventory/inventoryRules";
+import { getInventoryTag, getStockQty, normalizeForMatch, getEffectiveThresholds } from "@/components/inventory/inventoryRules";
 import InventoryTagBadge from "@/components/inventory/InventoryTagBadge";
 import RestockItemDrawer from "@/components/inventory/RestockItemDrawer";
 import CsvRestockCard from "@/components/inventory/CsvRestockCard";

@@ -1,70 +1,39 @@
-# Bentako POS (Supabase)
+**Welcome to your Base44 project** 
 
-This repo was originally generated as a Base44 project. It has been updated to use **Supabase** for:
-- Auth (email/password)
-- Database reads/writes via PostgREST
-- Edge Functions via `supabase.functions.invoke(...)` (optional, for your offline sync + POS workflows)
+**About**
 
-## 1) Prerequisites
+View and Edit  your app on [Base44.com](http://Base44.com) 
 
-- Node.js 18+
-- A Supabase project already created (you said you already have this ✅)
+This project contains everything you need to run your app locally.
 
-## 2) Configure environment variables
+**Edit the code in your local development environment**
 
-Create **`.env.local`** in the project root:
+Any change pushed to the repo will also be reflected in the Base44 Builder.
 
-```bash
-VITE_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
-VITE_SUPABASE_ANON_KEY=YOUR_ANON_PUBLIC_KEY
+**Prerequisites:** 
+
+1. Clone the repository using the project's Git URL 
+2. Navigate to the project directory
+3. Install dependencies: `npm install`
+4. Create an `.env.local` file and set the right environment variables
+
+```
+VITE_BASE44_APP_ID=your_app_id
+VITE_BASE44_APP_BASE_URL=your_backend_url
+
+e.g.
+VITE_BASE44_APP_ID=cbef744a8545c389ef439ea6
+VITE_BASE44_APP_BASE_URL=https://my-to-do-list-81bfaad7.base44.app
 ```
 
-Get these from: **Supabase Dashboard → Project Settings → API**.
+Run the app: `npm run dev`
 
-## 3) Install + run
+**Publish your changes**
 
-```bash
-npm install
-npm run dev
-```
+Open [Base44.com](http://Base44.com) and click on Publish.
 
-> Note: this repo intentionally does **not** include `package-lock.json` so you can regenerate a clean lock after removing Base44 deps.
+**Docs & Support**
 
-## 4) Where to edit table mappings
+Documentation: [https://docs.base44.com/Integrations/Using-GitHub](https://docs.base44.com/Integrations/Using-GitHub)
 
-The app still calls `base44.entities.<Entity>` in many places.
-To avoid rewriting everything, `src/api/base44Client.js` now provides a **Supabase-backed compatibility layer**.
-
-If your Supabase table names differ, edit this object:
-
-- `src/api/base44Client.js` → `ENTITY_TABLE_MAP`
-
-Example:
-
-```js
-export const ENTITY_TABLE_MAP = {
-  Product: "products",
-  Customer: "customers",
-  // ...
-}
-```
-
-## 5) Login
-
-A simple login page is available at:
-
-- `/login`
-
-It uses `supabase.auth.signInWithPassword` and `supabase.auth.signUp`.
-
-## 6) Edge Functions (optional)
-
-If your app uses offline sync, it will call these via `supabase.functions.invoke`:
-
-- `pushSyncEvents`
-- `pullSyncEvents`
-
-…and other POS helpers like `completeSale`, `barcodeLookup`, etc.
-
-If you already deployed equivalents in Supabase Edge Functions, keep the same names.
-Otherwise, you can temporarily disable auto-sync or stub the functions.
+Support: [https://app.base44.com/support](https://app.base44.com/support)
