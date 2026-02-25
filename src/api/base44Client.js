@@ -1,39 +1,31 @@
-import { createClient } from '@base44/sdk';
-import { appParams } from '@/lib/app-params';
-import { getAccessToken } from '@/lib/auth/session';
+/**
+ * Base44 client has been removed.
+ *
+ * This file remains ONLY to keep the app compiling while migrating to Supabase.
+ * Any runtime use will throw with a clear message.
+ */
 
-const trimSlash = (s) => (typeof s === 'string' ? s.replace(/\/+$/, '') : s);
-
-function isProbablyCapacitor() {
-  if (typeof window === 'undefined') return false;
-  const cap = window.Capacitor;
-  if (cap && typeof cap.isNativePlatform === 'function') return !!cap.isNativePlatform();
-  if (cap) return true;
-  return window.location?.hostname === 'localhost' && window.location?.protocol === 'https:';
+function removed() {
+  throw new Error(
+    "Base44 has been removed. Migrate this screen to use Supabase (Edge Functions + Dexie caches). " +
+      "Search for 'base44.entities' usage and replace it with invokeFunction(...) or Dexie reads."
+  );
 }
 
-function resolveServerUrl() {
-  const base = trimSlash(appParams?.appBaseUrl);
-  if (isProbablyCapacitor()) {
-    if (!base || base.includes('localhost')) {
-      throw new Error(
-        'Base44 serverUrl is not configured for native build. Set VITE_BASE44_APP_BASE_URL to your Base44 app domain (e.g. https://bentako.base44.app).'
-      );
+export const base44 = {
+  entities: new Proxy(
+    {},
+    {
+      get() {
+        return new Proxy(
+          {},
+          {
+            get() {
+              return removed;
+            },
+          }
+        );
+      },
     }
-    return base;
-  }
-  return base || (typeof window !== 'undefined' ? window.location.origin : '');
-}
-
-const { appId, functionsVersion, appBaseUrl } = appParams;
-
-// Create a client with POSync custom auth token (NO Base44 built-in auth)
-export const base44 = createClient({
-  appId,
-  token: getAccessToken() || undefined,
-  functionsVersion,
-  // IMPORTANT: must be absolute for Capacitor builds.
-  serverUrl: resolveServerUrl(),
-  requiresAuth: false,
-  appBaseUrl: trimSlash(appBaseUrl)
-});
+  ),
+};
