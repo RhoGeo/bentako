@@ -1,8 +1,10 @@
 import { corsHeaders } from "../_shared/cors.ts";
-import { jsonFail, jsonFailFromError, jsonOk } from "../_shared/response.ts";
+import { jsonFail, jsonOk } from "../_shared/response.ts";
 import { requireAuth } from "../_shared/auth.ts";
 import { supabaseService } from "../_shared/supabase.ts";
 import { requireStoreAccess } from "../_shared/storeAccess.ts";
+import { productRowToSnapshot } from "../_shared/snapshots.ts";
+import { mapErrorToResponse } from "../_shared/errors.ts";
 
 function normalizeBarcode(input: unknown): string {
   const s = String(input ?? "").trim();
@@ -31,7 +33,9 @@ Deno.serve(async (req) => {
 
     const { data: rows, error } = await supabase
       .from("products")
-      .select("product_id,store_id,parent_product_id,is_parent,name,barcode,price_centavos,cost_price_centavos,track_stock,stock_quantity,low_stock_threshold,is_active,updated_at")
+      .select(
+        "product_id,store_id,parent_product_id,is_parent,name,barcode,price_centavos,cost_price_centavos,track_stock,stock_quantity,low_stock_threshold,is_active,created_at,updated_at,deleted_at,category:categories(name),parent:products!products_parent_product_id_fkey(name)"
+      )
       .eq("store_id", store_id)
       .eq("barcode", barcode)
       .eq("is_active", true)
@@ -40,7 +44,7 @@ Deno.serve(async (req) => {
 
     if (error) throw new Error(error.message);
 
-    const sellables = (rows ?? []).filter((p) => !p.is_parent);
+    const sellables = (rows ?? []).filter((p: any) => !p.is_parent);
     if (sellables.length === 0) {
       return jsonFail(404, "NOT_FOUND", "Barcode not found");
     }
@@ -52,8 +56,8 @@ Deno.serve(async (req) => {
       return av - bv;
     });
 
-    return jsonOk({ product: sellables[0] });
+    return jsonOk({ product: productRowToSnapshot(sellables[0] as any) });
   } catch (err) {
-    return jsonFailFromError(err);
+    return mapErrorToResponse(err);
   }
 });

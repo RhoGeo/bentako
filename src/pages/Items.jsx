@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { base44 } from "@/api/base44Client";
 import { invokeFunction } from "@/api/posyncClient";
 import { createPageUrl } from "@/utils";
 import { toast } from "sonner";
@@ -82,10 +81,12 @@ export default function Items() {
 
   const { data: serverProducts = [], isLoading } = useQuery({
     queryKey: ["products-all", storeId],
+    enabled: !!storeId && navigator.onLine,
     queryFn: async () => {
-      const res = await base44.entities.Product.filter({ store_id: storeId, is_active: true });
-      await upsertCachedProducts(res, storeId);
-      return res;
+      const res = await invokeFunction("listProducts", { store_id: storeId });
+      const products = res?.data?.products || [];
+      await upsertCachedProducts(products, storeId);
+      return products;
     },
     initialData: [],
   });

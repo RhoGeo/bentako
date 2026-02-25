@@ -29,6 +29,8 @@ export default function Staff() {
   const [addForm, setAddForm] = useState({ user_email: "", user_name: "", role: "cashier" });
   const [saving, setSaving] = useState(false);
   const [permModal, setPermModal] = useState({ open: false, member: null, overrides: {} });
+  const [inviteForm, setInviteForm] = useState({ invite_email: "", role: "cashier" });
+  const [inviteLink, setInviteLink] = useState("");
 
   const { data: staffList = [] } = useQuery({
     queryKey: ["staff-list", storeId],
@@ -39,6 +41,18 @@ export default function Staff() {
       return data?.members || [];
     },
     initialData: [],
+  });
+
+  const { data: invites = [] } = useQuery({
+    queryKey: ["staff-invites", storeId],
+    enabled: !!storeId && canManage && navigator.onLine,
+    queryFn: async () => {
+      const res = await invokeFunction("listStaffInvites", { store_id: storeId });
+      const payload = res?.data || {};
+      return payload?.invites || [];
+    },
+    initialData: [],
+    staleTime: 15_000,
   });
 
   const handleAdd = async () => {
@@ -72,6 +86,38 @@ export default function Staff() {
     toast.success("Staff member removed.");
   };
 
+  const handleInvite = async () => {
+    const email = inviteForm.invite_email.trim();
+    if (!email) return toast.error("Email required.");
+    try {
+      const res = await invokeFunction("inviteStaff", {
+        store_id: storeId,
+        invite_email: email,
+        role: inviteForm.role,
+      });
+      const data = res?.data || {};
+      const token = data?.invite_token;
+      if (!token) throw new Error("Invite failed");
+      const url = `${window.location.origin}${createPageUrl("AcceptInvite")}?token=${encodeURIComponent(token)}`;
+      setInviteLink(url);
+      try {
+        await navigator.clipboard.writeText(url);
+        toast.success("Invite link copied!");
+      } catch {
+        toast.success("Invite created.");
+      }
+      queryClient.invalidateQueries({ queryKey: ["staff-invites", storeId] });
+    } catch (e) {
+      toast.error(e?.message || "Invite failed.");
+    }
+  };
+
+  const revokeInvite = async (invite_id) => {
+    await invokeFunction("revokeStaffInvite", { store_id: storeId, invite_id });
+    toast.success("Invite revoked.");
+    queryClient.invalidateQueries({ queryKey: ["staff-invites", storeId] });
+  };
+
   const openOverrides = (member) => {
     setPermModal({ open: true, member, overrides: { ...(member?.overrides_json || {}) } });
   };
@@ -96,6 +142,11 @@ export default function Staff() {
       <div className="sticky top-0 bg-white/95 backdrop-blur-sm border-b border-stone-100 px-4 py-3 flex items-center gap-3 z-20">
         <button onClick={() => navigate(-1)} className="touch-target"><ArrowLeft className="w-5 h-5 text-stone-600" /></button>
         <h1 className="text-lg font-bold text-stone-800 flex-1">Staff & Roles</h1>
+        {staffMember?.role === "owner" && canManage && (
+          <Link to={createPageUrl("StaffAssignments")}>
+            <Button variant="outline" className="h-9 mr-2">Multi-store</Button>
+          </Link>
+        )}
         {canManage && (
           <Button onClick={() => setShowAdd(!showAdd)} className="h-9 bg-blue-600 hover:bg-blue-700 px-3">
             <Plus className="w-4 h-4 mr-1" />Add
@@ -138,6 +189,53 @@ export default function Staff() {
                 {saving ? "Saving…" : "Add"}
               </Button>
             </div>
+          </div>
+        )}
+
+        {canManage && (
+          <div className="bg-white rounded-xl border border-stone-100 p-4 space-y-3">
+            <p className="text-sm font-semibold text-stone-800">Invite via Link</p>
+            <div>
+              <Label className="text-xs text-stone-500 mb-1 block">Invite Email</Label>
+              <Input value={inviteForm.invite_email} onChange={(e) => setInviteForm((f) => ({ ...f, invite_email: e.target.value }))} className="h-11" inputMode="email" autoCapitalize="none" />
+            </div>
+            <div>
+              <Label className="text-xs text-stone-500 mb-1 block">Role</Label>
+              <Select value={inviteForm.role} onValueChange={(v) => setInviteForm((f) => ({ ...f, role: v }))}>
+                <SelectTrigger className="h-11"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="manager">Manager</SelectItem>
+                  <SelectItem value="cashier">Cashier</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Button className="w-full h-11 bg-indigo-600 hover:bg-indigo-700" onClick={handleInvite}>
+              Create Invite Link
+            </Button>
+            {inviteLink && (
+              <div className="text-xs text-stone-500 break-all bg-stone-50 rounded-lg p-3">
+                {inviteLink}
+              </div>
+            )}
+
+            {invites.length > 0 && (
+              <div className="pt-2">
+                <p className="text-xs font-semibold text-stone-500 mb-2">Pending Invites</p>
+                <div className="space-y-2">
+                  {invites.filter((i) => !i.revoked_at && (i.used_count || 0) < (i.max_uses || 1)).map((i) => (
+                    <div key={i.invite_id} className="flex items-center justify-between gap-2 bg-stone-50 rounded-lg px-3 py-2">
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-stone-700 truncate">{i.invite_email}</div>
+                        <div className="text-[11px] text-stone-400">Role: {i.role}</div>
+                      </div>
+                      <Button variant="outline" className="h-8" onClick={() => revokeInvite(i.invite_id)}>
+                        Revoke
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 

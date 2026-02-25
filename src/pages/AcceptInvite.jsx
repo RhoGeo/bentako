@@ -1,37 +1,37 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { base44 } from "@/api/base44Client";
 import { createPageUrl } from "@/utils";
 import { setActiveStoreId } from "@/components/lib/activeStore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ArrowLeft, CheckCircle2, Link2 } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "@/lib/AuthContext";
+import { invokeFunction } from "@/api/posyncClient";
 
 export default function AcceptInvite() {
   const navigate = useNavigate();
+  const { user, refreshAuth } = useAuth();
   const params = new URLSearchParams(window.location.search);
   const tokenFromUrl = params.get("token") || "";
   const [token, setToken] = useState(tokenFromUrl);
   const [loading, setLoading] = useState(false);
-  const [userEmail, setUserEmail] = useState("");
-
-  useEffect(() => {
-    base44.auth.me().then((u) => setUserEmail(u?.email || "")).catch(() => setUserEmail(""));
-  }, []);
+  const userEmail = user?.email || "";
 
   const accept = async () => {
     if (!token.trim()) return toast.error("Invite token required.");
     setLoading(true);
     try {
-      const res = await base44.functions.invoke("acceptStaffInvite", { invite_token: token.trim() });
-      const data = res?.data?.data || res?.data;
+      const res = await invokeFunction("acceptStaffInvite", { invite_token: token.trim() });
+      const payload = res?.data?.data || res?.data || res;
+      const data = payload?.data || payload;
       const storeId = data?.store_id;
       if (!storeId) {
-        toast.error(data?.error?.message || "Invite failed.");
+        toast.error(payload?.error?.message || "Invite failed.");
         return;
       }
       setActiveStoreId(storeId);
+      try { await refreshAuth(); } catch (_e) {}
       toast.success("Invite accepted.");
       navigate(createPageUrl("Counter"), { replace: true });
     } finally {

@@ -52,6 +52,7 @@ import CombinedView from './pages/CombinedView';
 import Counter from './pages/Counter';
 import CustomersDue from './pages/CustomersDue';
 import Devices from './pages/Devices';
+import AcceptInvite from './pages/AcceptInvite';
 import Items from './pages/Items';
 import More from './pages/More';
 import OperatingPolicy from './pages/OperatingPolicy';
@@ -62,6 +63,7 @@ import Reports from './pages/Reports';
 import RestockChecklist from './pages/RestockChecklist';
 import SalesLog from './pages/SalesLog';
 import Staff from './pages/Staff';
+import StaffAssignments from './pages/StaffAssignments';
 import StoreSettings from './pages/StoreSettings';
 import StoreSwitcher from './pages/StoreSwitcher';
 import SyncStatus from './pages/SyncStatus';
@@ -77,6 +79,7 @@ export const PAGES = {
     "Counter": Counter,
     "CustomersDue": CustomersDue,
     "Devices": Devices,
+    "AcceptInvite": AcceptInvite,
     "Items": Items,
     "More": More,
     "OperatingPolicy": OperatingPolicy,
@@ -87,6 +90,7 @@ export const PAGES = {
     "RestockChecklist": RestockChecklist,
     "SalesLog": SalesLog,
     "Staff": Staff,
+    "StaffAssignments": StaffAssignments,
     "StoreSettings": StoreSettings,
     "StoreSwitcher": StoreSwitcher,
     "SyncStatus": SyncStatus,

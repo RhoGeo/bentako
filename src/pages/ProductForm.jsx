@@ -1,5 +1,4 @@
-import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import React, { useEffect, useMemo, useState } from "react";
 import { invokeFunction } from "@/api/posyncClient";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
@@ -26,20 +25,28 @@ import { auditLog } from "@/components/lib/auditLog";
 
 const CATEGORIES = ["Drinks", "Snacks", "Canned", "Hygiene", "Rice", "Condiments", "Frozen", "Others"];
 
+function pesoToCentavos(pesoVal) {
+  const n = Number.parseFloat(String(pesoVal || "").trim() || "0");
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 100);
+}
+
 export default function ProductForm() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { storeId } = useActiveStoreId();
   const { user } = useCurrentStaff(storeId);
+
   const urlParams = new URLSearchParams(window.location.search);
-  const productId = urlParams.get("id");
+  const productIdFromUrl = urlParams.get("id");
   const prefillBarcode = urlParams.get("barcode") || "";
-  const isEdit = !!productId;
+
+  const [resolvedEditId, setResolvedEditId] = useState(productIdFromUrl || null);
 
   const [form, setForm] = useState({
     name: "",
     category: "",
-    product_type: "single",
+    product_type: "single", // 'single'|'parent'
     barcode: prefillBarcode,
     cost_price_centavos: 0,
     selling_price_centavos: 0,
@@ -49,123 +56,181 @@ export default function ProductForm() {
     is_pinned: false,
     store_id: storeId,
   });
+
   const [variants, setVariants] = useState([]);
-  const [scanTarget, setScanTarget] = useState(null); // null | "main" | variant index
+  const [scanTarget, setScanTarget] = useState(null); // null | "main" | number index
   const [scannerOpen, setScannerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // Load existing product
-  const { data: existingProduct } = useQuery({
-    queryKey: ["product", productId],
+  const updateField = (key, value) => setForm((f) => ({ ...f, [key]: value }));
+
+  // ── Load product context ────────────────────────────────────────────────
+  const { data: ctx, isLoading } = useQuery({
+    queryKey: ["product-form", storeId, productIdFromUrl],
+    enabled: !!storeId,
     queryFn: async () => {
-      if (!productId) return null;
-      const products = await base44.entities.Product.filter({ id: productId, store_id: storeId });
-      return products[0] || null;
+      if (!productIdFromUrl) return { product: null, variants: [], resolvedProductId: null };
+
+      const pRes = await invokeFunction("getProduct", { store_id: storeId, product_id: productIdFromUrl });
+      const product = pRes?.data?.product || null;
+      if (!product) return { product: null, variants: [], resolvedProductId: null };
+
+      // If a variant was tapped from Items/Counter, open its parent editor (variants managed there).
+      if (product.parent_id) {
+        const parentId = product.parent_id;
+        const parentRes = await invokeFunction("getProduct", { store_id: storeId, product_id: parentId });
+        const parent = parentRes?.data?.product || null;
+        const vRes = await invokeFunction("listProductVariants", { store_id: storeId, parent_product_id: parentId });
+        const vars = vRes?.data?.variants || [];
+        return { product: parent, variants: vars, resolvedProductId: parentId };
+      }
+
+      if (product.product_type === "parent") {
+        const vRes = await invokeFunction("listProductVariants", { store_id: storeId, parent_product_id: product.id });
+        const vars = vRes?.data?.variants || [];
+        return { product, variants: vars, resolvedProductId: product.id };
+      }
+
+      return { product, variants: [], resolvedProductId: product.id };
     },
-    enabled: !!productId && !!storeId,
+    staleTime: 20_000,
   });
 
-  // Load variants if parent
-  const { data: existingVariants = [] } = useQuery({
-    queryKey: ["variants", productId],
-    queryFn: async () => {
-      if (!productId) return [];
-      return base44.entities.Product.filter({ parent_id: productId, store_id: storeId, is_active: true });
-    },
-    enabled: !!productId && !!storeId,
-  });
+  useEffect(() => {
+    // Reset store binding in form when switching store
+    setForm((f) => ({ ...f, store_id: storeId }));
+  }, [storeId]);
 
+  useEffect(() => {
+    if (!ctx) return;
+
+    setResolvedEditId(ctx.resolvedProductId);
+
+    // New product
+    if (!ctx.product) {
+      setForm((f) => ({
+        ...f,
+        name: "",
+        category: "",
+        product_type: "single",
+        barcode: prefillBarcode,
+        cost_price_centavos: 0,
+        selling_price_centavos: 0,
+        track_stock: false,
+        stock_qty: 0,
+        low_stock_threshold: 5,
+        is_pinned: false,
+        store_id: storeId,
+      }));
+      setVariants([]);
+      return;
+    }
+
+    // Edit (single or parent)
+    const p = ctx.product;
+    setForm({
+      name: p.name || "",
+      category: p.category || "",
+      product_type: p.product_type || "single",
+      barcode: p.barcode || "",
+      cost_price_centavos: p.cost_price_centavos || 0,
+      selling_price_centavos: p.selling_price_centavos || 0,
+      track_stock: !!p.track_stock,
+      stock_qty: p.stock_qty || 0,
+      low_stock_threshold: p.low_stock_threshold ?? 5,
+      is_pinned: !!p.is_pinned,
+      store_id: storeId,
+    });
+
+    if ((p.product_type || "single") === "parent") {
+      const vars = (ctx.variants || []).map((v) => ({
+        id: v.id,
+        name: v.variant_name || v.name || "",
+        cost_price_centavos: v.cost_price_centavos || 0,
+        selling_price_centavos: v.selling_price_centavos || 0,
+        track_stock: !!v.track_stock,
+        stock_qty: v.stock_qty || 0,
+        low_stock_threshold: v.low_stock_threshold ?? 0,
+        barcode: v.barcode || "",
+      }));
+      setVariants(vars);
+    } else {
+      setVariants([]);
+    }
+  }, [ctx, prefillBarcode, storeId]);
+
+  const isEdit = !!resolvedEditId;
+  const isParent = form.product_type === "parent";
+
+  // ── Barcode conflicts (Dexie-first) ─────────────────────────────────────
   const findBarcodeConflict = async ({ barcode, excludeId }) => {
     if (!storeId) return null;
     const bc = normalizeBarcode(barcode);
     if (!bc) return null;
 
-    // Dexie-first: prevents duplicates against offline catalog.
     const cached = await getCachedProductByBarcode(storeId, bc);
-    if (cached && cached.product_type !== "parent" && cached.id && cached.id !== excludeId) {
-      return cached;
-    }
+    if (cached && cached.product_type !== "parent" && cached.id && cached.id !== excludeId) return cached;
 
     if (!navigator.onLine) return null;
 
-    // Server-confirm: barcodeLookup never returns parent and respects store scoping.
     try {
       const res = await invokeFunction("barcodeLookup", { store_id: storeId, barcode: bc });
-      const p = res?.data?.product || res?.data?.data?.product || null;
+      const p = res?.data?.product || null;
       if (p && p.id && p.id !== excludeId) return p;
     } catch (_e) {}
+
     return null;
   };
 
-  useEffect(() => {
-    if (existingProduct) {
-      setForm({
-        name: existingProduct.name || "",
-        category: existingProduct.category || "",
-        product_type: existingProduct.product_type || "single",
-        barcode: existingProduct.barcode || "",
-        cost_price_centavos: existingProduct.cost_price_centavos || 0,
-        selling_price_centavos: existingProduct.selling_price_centavos || 0,
-        track_stock: existingProduct.track_stock || false,
-        stock_qty: existingProduct.stock_qty || 0,
-        low_stock_threshold: existingProduct.low_stock_threshold || 5,
-        is_pinned: existingProduct.is_pinned || false,
-        store_id: existingProduct.store_id || "default",
-      });
-    }
-  }, [existingProduct]);
+  const validationErrors = useMemo(() => {
+    const errs = [];
+    if (!form.name.trim()) errs.push("Name is required");
 
-  useEffect(() => {
-    if (existingVariants.length > 0) {
-      setVariants(
-        existingVariants.map((v) => ({
-          id: v.id,
-          name: v.name || "",
-          selling_price_centavos: v.selling_price_centavos || 0,
-          track_stock: v.track_stock || false,
-          stock_qty: v.stock_qty || 0,
-          barcode: v.barcode || "",
-        }))
-      );
+    if (!isParent) {
+      if (!form.cost_price_centavos || form.cost_price_centavos <= 0) errs.push("Cost is required");
+    } else {
+      if (variants.length === 0) errs.push("Add at least 1 variant");
+      for (let i = 0; i < variants.length; i++) {
+        const v = variants[i];
+        if (!String(v.name || "").trim()) errs.push(`Variant ${i + 1}: name required`);
+        if (!v.cost_price_centavos || v.cost_price_centavos <= 0) errs.push(`Variant ${i + 1}: cost required`);
+      }
     }
-  }, [existingVariants]);
 
-  const updateField = (key, value) => setForm((f) => ({ ...f, [key]: value }));
+    return errs;
+  }, [form.name, form.cost_price_centavos, isParent, variants]);
 
   const handleSave = async () => {
-    if (!form.name.trim()) {
-      toast.error("Name is required");
+    if (validationErrors.length) {
+      toast.error(validationErrors[0]);
       return;
     }
+
     setSaving(true);
 
     const data = {
       ...form,
       store_id: storeId,
-      cost_price_centavos: Math.round(form.cost_price_centavos),
-      selling_price_centavos: Math.round(form.selling_price_centavos),
+      id: resolvedEditId || undefined,
       barcode: normalizeBarcode(form.barcode),
+      cost_price_centavos: Math.round(form.cost_price_centavos || 0),
+      selling_price_centavos: Math.round(form.selling_price_centavos || 0),
+      stock_qty: Number(form.stock_qty || 0),
     };
 
-    // If parent, clear sellable fields
-    if (form.product_type === "parent") {
+    // Parent: clear sellable fields
+    if (isParent) {
       data.barcode = "";
       data.selling_price_centavos = 0;
       data.cost_price_centavos = 0;
       data.track_stock = false;
       data.stock_qty = 0;
-      data.stock_quantity = 0;
     }
 
-    // Mirror canonical stock field
-    if (form.product_type !== "parent") {
-      data.stock_quantity = Number(form.stock_qty || 0);
-    }
-
-    // Barcode uniqueness per store for sellable items only
+    // Barcode uniqueness per store (sellable only)
     const barcodesToCheck = [];
-    if (data.product_type !== "parent" && data.barcode) barcodesToCheck.push({ id: productId || null, barcode: data.barcode });
-    if (data.product_type === "parent") {
+    if (!isParent && data.barcode) barcodesToCheck.push({ id: resolvedEditId || null, barcode: data.barcode });
+    if (isParent) {
       for (const v of variants) {
         const bc = normalizeBarcode(v.barcode);
         if (bc) barcodesToCheck.push({ id: v.id || null, barcode: bc });
@@ -183,6 +248,7 @@ export default function ProductForm() {
       seen.add(b.barcode);
     }
 
+    // Confirm against existing (Dexie + server)
     for (const b of barcodesToCheck) {
       const conflict = await findBarcodeConflict({ barcode: b.barcode, excludeId: b.id || null });
       if (conflict) {
@@ -192,79 +258,59 @@ export default function ProductForm() {
       }
     }
 
-    let savedProductId = productId;
-    if (isEdit) {
-      await base44.entities.Product.update(productId, data);
-    } else {
-      const created = await base44.entities.Product.create({ ...data, is_active: true });
-      savedProductId = created.id;
-    }
-
-    // Audit log (Step 11)
-    await auditLog(isEdit ? "product_edited" : "product_created", isEdit ? "Product edited" : "Product created", {
-      actor_email: user?.email,
-      reference_id: savedProductId,
-      metadata: { store_id: storeId, product_type: data.product_type },
-    });
-
-    // Upsert variants for parent
-    if (data.product_type === "parent") {
-      const existing = isEdit ? existingVariants : [];
-      const keepIds = new Set();
-      for (const v of variants) {
-        const row = {
-          name: v.name || "",
+    const variantsPayload = isParent
+      ? variants.map((v) => ({
+          id: v.id || undefined,
+          name: String(v.name || "").trim(),
+          barcode: normalizeBarcode(v.barcode),
           selling_price_centavos: Math.round(Number(v.selling_price_centavos || 0)),
+          cost_price_centavos: Math.round(Number(v.cost_price_centavos || 0)),
           track_stock: !!v.track_stock,
           stock_qty: Number(v.stock_qty || 0),
-          stock_quantity: Number(v.stock_qty || 0),
-          barcode: normalizeBarcode(v.barcode),
-          parent_id: savedProductId,
-          product_type: "single",
-          store_id: storeId,
-          category: data.category,
-          is_active: true,
-        };
-        if (v.id) {
-          await base44.entities.Product.update(v.id, row);
-          keepIds.add(v.id);
-        } else {
-          const createdVar = await base44.entities.Product.create(row);
-          keepIds.add(createdVar.id);
-        }
-      }
-      // Deactivate removed variants
-      for (const ev of existing) {
-        if (!keepIds.has(ev.id)) {
-          await base44.entities.Product.update(ev.id, { is_active: false });
-        }
-      }
-    }
+          low_stock_threshold: Number(v.low_stock_threshold || 0),
+        }))
+      : [];
 
-    // Update Dexie cache so offline scan can find it immediately
     try {
-      const saved = await base44.entities.Product.filter({ id: savedProductId });
-      if (saved?.[0]) await upsertCachedProducts([saved[0]], storeId);
-      if (data.product_type === "parent") {
-        const vars = await base44.entities.Product.filter({ parent_id: savedProductId, is_active: true });
-        await upsertCachedProducts(vars, storeId);
-      }
-    } catch (_e) {}
+      const res = await invokeFunction("upsertProduct", {
+        store_id: storeId,
+        product: data,
+        variants: variantsPayload,
+      });
 
-    queryClient.invalidateQueries({ queryKey: ["products", storeId] });
-    queryClient.invalidateQueries({ queryKey: ["products-all", storeId] });
-    toast.success(isEdit ? "Product updated!" : "Product created!");
-    setSaving(false);
-    navigate(createPageUrl("Items"));
+      const savedProductId = res?.data?.product_id || resolvedEditId;
+
+      // Audit log
+      await auditLog(isEdit ? "product_edited" : "product_created", isEdit ? "Product edited" : "Product created", {
+        actor_email: user?.email,
+        reference_id: savedProductId,
+        metadata: { store_id: storeId, product_type: data.product_type },
+      });
+
+      // Update Dexie cache immediately (offline-first)
+      const parentSnapshot = res?.data?.product;
+      const variantSnapshots = res?.data?.variants || [];
+      const toCache = [parentSnapshot, ...variantSnapshots].filter(Boolean);
+      if (toCache.length) await upsertCachedProducts(toCache, storeId);
+
+      queryClient.invalidateQueries({ queryKey: ["cached-products", storeId] });
+      queryClient.invalidateQueries({ queryKey: ["products-all", storeId] });
+
+      toast.success(isEdit ? "Product updated!" : "Product created!");
+      navigate(createPageUrl("Items"));
+    } catch (e) {
+      const msg = e?.message || "Failed to save";
+      toast.error(msg);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleScanResult = (barcode) => {
     if (scanTarget === "main") {
       updateField("barcode", barcode);
     } else if (typeof scanTarget === "number") {
-      setVariants((prev) =>
-        prev.map((v, i) => (i === scanTarget ? { ...v, barcode } : v))
-      );
+      setVariants((prev) => prev.map((v, i) => (i === scanTarget ? { ...v, barcode } : v)));
     }
     setScannerOpen(false);
   };
@@ -272,7 +318,15 @@ export default function ProductForm() {
   const addVariant = () => {
     setVariants((prev) => [
       ...prev,
-      { name: "", selling_price_centavos: 0, track_stock: false, stock_qty: 0, barcode: "" },
+      {
+        name: "",
+        cost_price_centavos: 0,
+        selling_price_centavos: 0,
+        track_stock: false,
+        stock_qty: 0,
+        low_stock_threshold: 0,
+        barcode: "",
+      },
     ]);
   };
 
@@ -283,8 +337,6 @@ export default function ProductForm() {
   const updateVariant = (index, key, value) => {
     setVariants((prev) => prev.map((v, i) => (i === index ? { ...v, [key]: value } : v)));
   };
-
-  const isParent = form.product_type === "parent";
 
   return (
     <div className="pb-24">
@@ -307,228 +359,253 @@ export default function ProductForm() {
       </div>
 
       <div className="px-4 py-5 space-y-6">
-        {/* Type Selector */}
-        <div>
-          <Label className="text-xs text-stone-500 mb-2 block">Product Type</Label>
-          <div className="flex gap-2">
-            <button
-              onClick={() => updateField("product_type", "single")}
-              className={`flex-1 py-3 rounded-xl text-sm font-semibold transition-all touch-target ${
-                !isParent ? "bg-blue-600 text-white shadow-md" : "bg-stone-100 text-stone-600"
-              }`}
-            >
-              Single Item
-            </button>
-            <button
-              onClick={() => updateField("product_type", "parent")}
-              className={`flex-1 py-3 rounded-xl text-sm font-semibold transition-all touch-target ${
-                isParent ? "bg-blue-600 text-white shadow-md" : "bg-stone-100 text-stone-600"
-              }`}
-            >
-              Parent w/ Variants
-            </button>
-          </div>
-        </div>
-
-        {/* Core fields */}
-        <div className="space-y-4">
-          <div>
-            <Label className="text-xs text-stone-500 mb-1.5 block">Name *</Label>
-            <Input
-              value={form.name}
-              onChange={(e) => updateField("name", e.target.value)}
-              placeholder="e.g. Coke 1.5L"
-              className="h-12 text-base"
-            />
-          </div>
-
-          <div>
-            <Label className="text-xs text-stone-500 mb-1.5 block">Category</Label>
-            <Select value={form.category} onValueChange={(v) => updateField("category", v)}>
-              <SelectTrigger className="h-12">
-                <SelectValue placeholder="Select category" />
-              </SelectTrigger>
-              <SelectContent>
-                {CATEGORIES.map((c) => (
-                  <SelectItem key={c} value={c}>{c}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        {/* Sellable fields (single only) */}
-        {!isParent && (
-          <div className="space-y-4 bg-stone-50 rounded-xl p-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label className="text-xs text-stone-500 mb-1.5 block">Cost (₱)</Label>
-                <Input
-                  type="number"
-                  inputMode="decimal"
-                  value={form.cost_price_centavos / 100 || ""}
-                  onChange={(e) =>
-                    updateField("cost_price_centavos", Math.round(parseFloat(e.target.value || "0") * 100))
-                  }
-                  placeholder="0.00"
-                  className="h-12 text-base font-semibold"
-                />
-              </div>
-              <div>
-                <Label className="text-xs text-stone-500 mb-1.5 block">Price (₱)</Label>
-                <Input
-                  type="number"
-                  inputMode="decimal"
-                  value={form.selling_price_centavos / 100 || ""}
-                  onChange={(e) =>
-                    updateField("selling_price_centavos", Math.round(parseFloat(e.target.value || "0") * 100))
-                  }
-                  placeholder="0.00"
-                  className="h-12 text-base font-semibold"
-                />
-              </div>
-            </div>
-
-            {/* Barcode */}
+        {isLoading ? (
+          <div className="text-center py-12 text-stone-400 text-sm">Loading…</div>
+        ) : (
+          <>
+            {/* Type Selector */}
             <div>
-              <Label className="text-xs text-stone-500 mb-1.5 block">Barcode</Label>
+              <Label className="text-xs text-stone-500 mb-2 block">Product Type</Label>
               <div className="flex gap-2">
-                <Input
-                  value={form.barcode}
-                  onChange={(e) => updateField("barcode", e.target.value)}
-                  placeholder="Scan or type barcode"
-                  className="h-12 flex-1 font-mono"
-                />
-                <Button
-                  variant="outline"
-                  className="h-12 w-12 p-0 touch-target"
-                  onClick={() => {
-                    setScanTarget("main");
-                    setScannerOpen(true);
-                  }}
+                <button
+                  onClick={() => updateField("product_type", "single")}
+                  className={`flex-1 py-3 rounded-xl text-sm font-semibold transition-all touch-target ${
+                    !isParent ? "bg-blue-600 text-white shadow-md" : "bg-stone-100 text-stone-600"
+                  }`}
                 >
-                  <ScanLine className="w-5 h-5 text-blue-600" />
-                </Button>
+                  Single Item
+                </button>
+                <button
+                  onClick={() => updateField("product_type", "parent")}
+                  className={`flex-1 py-3 rounded-xl text-sm font-semibold transition-all touch-target ${
+                    isParent ? "bg-blue-600 text-white shadow-md" : "bg-stone-100 text-stone-600"
+                  }`}
+                >
+                  Parent w/ Variants
+                </button>
               </div>
             </div>
 
-            {/* Stock */}
-            <div className="flex items-center justify-between">
-              <Label className="text-sm text-stone-700">Track Stock</Label>
-              <Switch
-                checked={form.track_stock}
-                onCheckedChange={(v) => updateField("track_stock", v)}
-              />
-            </div>
-            {form.track_stock && (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs text-stone-500 mb-1.5 block">Stock Qty</Label>
-                  <Input
-                    type="number"
-                    inputMode="numeric"
-                    value={form.stock_qty || ""}
-                    onChange={(e) => updateField("stock_qty", parseInt(e.target.value || "0"))}
-                    className="h-12 text-base"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs text-stone-500 mb-1.5 block">Low Threshold</Label>
-                  <Input
-                    type="number"
-                    inputMode="numeric"
-                    value={form.low_stock_threshold || ""}
-                    onChange={(e) => updateField("low_stock_threshold", parseInt(e.target.value || "0"))}
-                    className="h-12 text-base"
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Variants Section */}
-        {isParent && (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <Label className="text-sm font-semibold text-stone-700">Variants</Label>
-              <Button variant="outline" size="sm" onClick={addVariant} className="h-8 touch-target">
-                <Plus className="w-3 h-3 mr-1" /> Add Variant
-              </Button>
-            </div>
-            {variants.map((v, i) => (
-              <div key={i} className="bg-stone-50 rounded-xl p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-stone-500">Variant {i + 1}</span>
-                  <button onClick={() => removeVariant(i)} className="text-red-400 hover:text-red-600">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
+            {/* Core fields */}
+            <div className="space-y-4">
+              <div>
+                <Label className="text-xs text-stone-500 mb-1.5 block">Name *</Label>
                 <Input
-                  value={v.name}
-                  onChange={(e) => updateVariant(i, "name", e.target.value)}
-                  placeholder="Variant name"
-                  className="h-11"
+                  value={form.name}
+                  onChange={(e) => updateField("name", e.target.value)}
+                  placeholder="e.g. Marlboro"
+                  className="h-12 text-base"
                 />
-                <div className="grid grid-cols-2 gap-2">
+              </div>
+
+              <div>
+                <Label className="text-xs text-stone-500 mb-1.5 block">Category</Label>
+                <Select value={form.category} onValueChange={(v) => updateField("category", v)}>
+                  <SelectTrigger className="h-12">
+                    <SelectValue placeholder="Select category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CATEGORIES.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        {c}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Sellable fields (single only) */}
+            {!isParent && (
+              <div className="space-y-4 bg-stone-50 rounded-xl p-4">
+                <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <Label className="text-[10px] text-stone-400">Price (₱)</Label>
+                    <Label className="text-xs text-stone-500 mb-1.5 block">Cost (₱) *</Label>
                     <Input
                       type="number"
                       inputMode="decimal"
-                      value={v.selling_price_centavos / 100 || ""}
-                      onChange={(e) =>
-                        updateVariant(i, "selling_price_centavos", Math.round(parseFloat(e.target.value || "0") * 100))
-                      }
-                      className="h-10"
+                      value={form.cost_price_centavos ? form.cost_price_centavos / 100 : ""}
+                      onChange={(e) => updateField("cost_price_centavos", pesoToCentavos(e.target.value))}
+                      placeholder="0.00"
+                      className="h-12 text-base font-semibold"
                     />
                   </div>
                   <div>
-                    <Label className="text-[10px] text-stone-400">Barcode</Label>
-                    <div className="flex gap-1">
-                      <Input
-                        value={v.barcode}
-                        onChange={(e) => updateVariant(i, "barcode", e.target.value)}
-                        className="h-10 font-mono flex-1"
-                      />
-                      <Button
-                        variant="outline"
-                        className="h-10 w-10 p-0"
-                        onClick={() => {
-                          setScanTarget(i);
-                          setScannerOpen(true);
-                        }}
-                      >
-                        <ScanLine className="w-4 h-4" />
-                      </Button>
-                    </div>
+                    <Label className="text-xs text-stone-500 mb-1.5 block">Price (₱)</Label>
+                    <Input
+                      type="number"
+                      inputMode="decimal"
+                      value={form.selling_price_centavos ? form.selling_price_centavos / 100 : ""}
+                      onChange={(e) => updateField("selling_price_centavos", pesoToCentavos(e.target.value))}
+                      placeholder="0.00"
+                      className="h-12 text-base font-semibold"
+                    />
                   </div>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-stone-500">Track Stock</span>
-                  <Switch
-                    checked={v.track_stock}
-                    onCheckedChange={(val) => updateVariant(i, "track_stock", val)}
-                  />
+
+                {/* Barcode */}
+                <div>
+                  <Label className="text-xs text-stone-500 mb-1.5 block">Barcode</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={form.barcode}
+                      onChange={(e) => updateField("barcode", e.target.value)}
+                      placeholder="Scan or type barcode"
+                      className="h-12 flex-1 font-mono"
+                    />
+                    <Button
+                      variant="outline"
+                      className="h-12 w-12 p-0 touch-target"
+                      onClick={() => {
+                        setScanTarget("main");
+                        setScannerOpen(true);
+                      }}
+                    >
+                      <ScanLine className="w-5 h-5 text-blue-600" />
+                    </Button>
+                  </div>
                 </div>
-                {v.track_stock && (
-                  <Input
-                    type="number"
-                    inputMode="numeric"
-                    value={v.stock_qty || ""}
-                    onChange={(e) => updateVariant(i, "stock_qty", parseInt(e.target.value || "0"))}
-                    placeholder="Stock qty"
-                    className="h-10"
-                  />
+
+                {/* Stock */}
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm text-stone-700">Track Stock</Label>
+                  <Switch checked={form.track_stock} onCheckedChange={(v) => updateField("track_stock", v)} />
+                </div>
+                {form.track_stock && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs text-stone-500 mb-1.5 block">Stock Qty</Label>
+                      <Input
+                        type="number"
+                        inputMode="numeric"
+                        value={form.stock_qty || ""}
+                        onChange={(e) => updateField("stock_qty", parseInt(e.target.value || "0"))}
+                        className="h-12 text-base"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-stone-500 mb-1.5 block">Low Threshold</Label>
+                      <Input
+                        type="number"
+                        inputMode="numeric"
+                        value={form.low_stock_threshold || ""}
+                        onChange={(e) => updateField("low_stock_threshold", parseInt(e.target.value || "0"))}
+                        className="h-12 text-base"
+                      />
+                    </div>
+                  </div>
                 )}
               </div>
-            ))}
-            {variants.length === 0 && (
-              <p className="text-xs text-stone-400 text-center py-4">
-                No variants yet. Tap "Add Variant" to start.
-              </p>
             )}
-          </div>
+
+            {/* Variants Section */}
+            {isParent && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm font-semibold text-stone-700">Variants</Label>
+                  <Button variant="outline" size="sm" onClick={addVariant} className="h-8 touch-target">
+                    <Plus className="w-3 h-3 mr-1" /> Add Variant
+                  </Button>
+                </div>
+
+                {variants.map((v, i) => (
+                  <div key={v.id || i} className="bg-stone-50 rounded-xl p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-stone-500">Variant {i + 1}</span>
+                      <button onClick={() => removeVariant(i)} className="text-red-400 hover:text-red-600">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <Input
+                      value={v.name}
+                      onChange={(e) => updateVariant(i, "name", e.target.value)}
+                      placeholder="Variant name (e.g. Red)"
+                      className="h-11"
+                    />
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <Label className="text-[10px] text-stone-400">Cost (₱) *</Label>
+                        <Input
+                          type="number"
+                          inputMode="decimal"
+                          value={v.cost_price_centavos ? v.cost_price_centavos / 100 : ""}
+                          onChange={(e) => updateVariant(i, "cost_price_centavos", pesoToCentavos(e.target.value))}
+                          className="h-10"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-[10px] text-stone-400">Price (₱)</Label>
+                        <Input
+                          type="number"
+                          inputMode="decimal"
+                          value={v.selling_price_centavos ? v.selling_price_centavos / 100 : ""}
+                          onChange={(e) => updateVariant(i, "selling_price_centavos", pesoToCentavos(e.target.value))}
+                          className="h-10"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <Label className="text-[10px] text-stone-400">Barcode</Label>
+                      <div className="flex gap-1">
+                        <Input
+                          value={v.barcode}
+                          onChange={(e) => updateVariant(i, "barcode", e.target.value)}
+                          className="h-10 font-mono flex-1"
+                        />
+                        <Button
+                          variant="outline"
+                          className="h-10 w-10 p-0"
+                          onClick={() => {
+                            setScanTarget(i);
+                            setScannerOpen(true);
+                          }}
+                        >
+                          <ScanLine className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-stone-500">Track Stock</span>
+                      <Switch checked={v.track_stock} onCheckedChange={(val) => updateVariant(i, "track_stock", val)} />
+                    </div>
+
+                    {v.track_stock && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <Label className="text-[10px] text-stone-400">Stock qty</Label>
+                          <Input
+                            type="number"
+                            inputMode="numeric"
+                            value={v.stock_qty || ""}
+                            onChange={(e) => updateVariant(i, "stock_qty", parseInt(e.target.value || "0"))}
+                            className="h-10"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-[10px] text-stone-400">Low threshold</Label>
+                          <Input
+                            type="number"
+                            inputMode="numeric"
+                            value={v.low_stock_threshold || ""}
+                            onChange={(e) => updateVariant(i, "low_stock_threshold", parseInt(e.target.value || "0"))}
+                            className="h-10"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {variants.length === 0 && (
+                  <p className="text-xs text-stone-400 text-center py-4">No variants yet. Tap "Add Variant" to start.</p>
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
 

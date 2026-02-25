@@ -1,51 +1,41 @@
-import { corsHeaders } from "../_shared/cors.ts";
-import { jsonFail, jsonFailFromError, jsonOk } from "../_shared/response.ts";
+import { ok, fail, json, readJson } from "../_shared/http.ts";
 import { requireAuth, listMembershipsAndStores } from "../_shared/auth.ts";
-import { supabaseService } from "../_shared/supabase.ts";
+import { getServiceClient } from "../_shared/supabase.ts";
 
-Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return json({}, { status: 200 });
+  if (req.method !== "POST") return fail("METHOD_NOT_ALLOWED", "Use POST", undefined, 405);
 
   try {
-    const supabase = supabaseService();
     const { user } = await requireAuth(req);
+    const body = await readJson(req);
+    const store_name = (body.store_name ?? "").toString().trim();
+    if (store_name.length < 2) return fail("VALIDATION", "Store name is required");
 
-    const body = await req.json();
-    const store_name = String(body?.store_name ?? "").trim();
-    if (!store_name) return jsonFail(400, "BAD_REQUEST", "store_name required");
+    const supabase = getServiceClient();
 
-    // Ensure they don't already have a membership (we still allow creating new store, but prompt says first store only)
-    const { memberships: existingMemberships } = await listMembershipsAndStores(user.user_id);
-
-    const { data: store, error: sErr } = await supabase
+    // Create store
+    const { data: stores, error: serr } = await supabase
       .from("stores")
-      .insert({
-        store_name,
-        created_by: user.user_id,
-      })
-      .select("store_id,store_code,store_name,store_settings_json,low_stock_threshold_default,allow_negative_stock")
-      .single();
-    if (sErr) throw new Error(`Failed to create store: ${sErr.message}`);
+      .insert({ store_name, created_by: user.user_id })
+      .select("store_id,store_name,store_code")
+      .limit(1);
+    if (serr) return fail("DB_ERROR", "Failed to create store", serr, 500);
+    const store = stores?.[0];
+    if (!store) return fail("DB_ERROR", "Failed to create store", undefined, 500);
 
-    const { data: membership, error: mErr } = await supabase
+    // Create owner membership
+    const { error: merr } = await supabase
       .from("store_memberships")
-      .insert({
-        store_id: store.store_id,
-        user_id: user.user_id,
-        role: "owner",
-        is_active: true,
-        created_by: user.user_id,
-      })
-      .select("store_membership_id,store_id,user_id,role,permission_set_id,overrides_json,is_active")
-      .single();
-    if (mErr) throw new Error(`Failed to create membership: ${mErr.message}`);
+      .insert({ store_id: store.store_id, user_id: user.user_id, role: "owner", created_by: user.user_id, is_active: true });
+    if (merr) return fail("DB_ERROR", "Failed to create membership", merr, 500);
 
-    return jsonOk({
-      store,
-      membership,
-      note: existingMemberships.length ? "User already had memberships; created additional store." : undefined,
-    });
-  } catch (err) {
-    return jsonFailFromError(err);
+    const { memberships, stores: accessibleStores } = await listMembershipsAndStores(user.user_id);
+
+    return ok({ store, membership_created: true, memberships, stores: accessibleStores });
+  } catch (e) {
+    const msg = e?.message || String(e);
+    const code = msg === "AUTH_REQUIRED" || msg === "AUTH_EXPIRED" ? "AUTH_REQUIRED" : "SERVER_ERROR";
+    return fail(code, code === "AUTH_REQUIRED" ? "Authentication required" : msg, e, 401);
   }
 });

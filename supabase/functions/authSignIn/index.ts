@@ -1,58 +1,74 @@
-import { corsHeaders } from "../_shared/cors.ts";
-import { jsonFail, jsonFailFromError, jsonOk } from "../_shared/response.ts";
-import { supabaseService } from "../_shared/supabase.ts";
-import { normalizeEmail } from "../_shared/normalize.ts";
-import { verifyPassword } from "../_shared/password.ts";
-import { issueSession, listMembershipsAndStores } from "../_shared/auth.ts";
+import { ok, fail, json, readJson } from "../_shared/http.ts";
+import { getServiceClient } from "../_shared/supabase.ts";
+import { verifyPassword, randomToken, sha256Hex, isoFromNow, ACCESS_TTL_MS, REFRESH_TTL_MS } from "../_shared/crypto.ts";
+import { listMembershipsAndStores } from "../_shared/auth.ts";
 
-Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+function normalizeEmail(e: unknown) {
+  return (e ?? "").toString().trim();
+}
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return json({}, { status: 200 });
+  if (req.method !== "POST") return fail("METHOD_NOT_ALLOWED", "Use POST", undefined, 405);
 
   try {
-    const supabase = supabaseService();
-    const body = await req.json();
+    const body = await readJson(req);
+    const email = normalizeEmail(body.email);
+    const password = (body.password ?? "").toString();
+    const device_id = (body.device_id ?? "").toString().trim();
+    if (!email || !password || !device_id) return fail("VALIDATION", "Missing required fields");
 
-    const device_id = String(body?.device_id ?? "").trim();
-    const password = String(body?.password ?? "");
-    if (!device_id) return jsonFail(400, "BAD_REQUEST", "device_id required");
-    if (!password) return jsonFail(400, "BAD_REQUEST", "password required");
+    const supabase = getServiceClient();
 
-    const { email, email_canonical } = normalizeEmail(body?.email);
-    if (!email || !email.includes("@")) return jsonFail(400, "BAD_REQUEST", "Invalid email");
-
-    const { data: user, error: uErr } = await supabase
+    const canonical = email.toLowerCase();
+    const { data: users, error: uerr } = await supabase
       .from("user_accounts")
-      .select("user_id,full_name,phone_number,email,email_canonical,password_hash,is_active")
-      .eq("email_canonical", email_canonical)
-      .maybeSingle();
+      .select("user_id,full_name,phone_number,email,password_hash,is_active")
+      .eq("email_canonical", canonical)
+      .limit(1);
 
-    if (uErr) throw new Error(uErr.message);
-    if (!user || !user.is_active) return jsonFail(401, "INVALID_CREDENTIALS", "Invalid email or password");
+    if (uerr) return fail("DB_ERROR", "Failed to fetch user", uerr, 500);
+    const u = users?.[0];
+    if (!u || u.is_active === false) return fail("INVALID_CREDENTIALS", "Invalid email or password", undefined, 401);
 
-    const ok = await verifyPassword(password, user.password_hash);
-    if (!ok) return jsonFail(401, "INVALID_CREDENTIALS", "Invalid email or password");
+    const okPw = await verifyPassword(password, u.password_hash);
+    if (!okPw) return fail("INVALID_CREDENTIALS", "Invalid email or password", undefined, 401);
 
-    const { tokens } = await issueSession({ user_id: user.user_id, device_id });
-    const { memberships, stores } = await listMembershipsAndStores(user.user_id);
-    const next_action = memberships.length === 0 ? "create_first_store" : (stores.length > 1 ? "select_store" : "go_to_app");
+    const access_token = randomToken(32);
+    const refresh_token = randomToken(48);
+    const access_expires_at = isoFromNow(ACCESS_TTL_MS);
+    const refresh_expires_at = isoFromNow(REFRESH_TTL_MS);
 
-    return jsonOk({
-      user: {
-        user_id: user.user_id,
-        full_name: user.full_name,
-        phone_number: user.phone_number,
-        email: user.email,
-      },
-      session: {
-        access_token: tokens.access_token,
-        refresh_token: tokens.refresh_token,
-        expires_at: tokens.access_expires_at,
-      },
-      next_action,
+    const access_token_hash = await sha256Hex(access_token);
+    const refresh_token_hash = await sha256Hex(refresh_token);
+
+    const { error: serr } = await supabase
+      .from("auth_sessions")
+      .insert({
+        user_id: u.user_id,
+        device_id,
+        access_token_hash,
+        refresh_token_hash,
+        access_expires_at,
+        refresh_expires_at,
+      });
+    if (serr) return fail("DB_ERROR", "Failed to create session", serr, 500);
+
+    const user = { user_id: u.user_id, full_name: u.full_name, phone_number: u.phone_number, email: u.email };
+    const { memberships, stores } = await listMembershipsAndStores(u.user_id);
+
+    let next_action = "go_to_app";
+    if (stores.length > 1) next_action = "select_store";
+    if (stores.length === 0) next_action = "no_store";
+
+    return ok({
+      user,
+      session: { access_token, refresh_token, access_expires_at, refresh_expires_at },
       memberships,
       stores,
+      next_action,
     });
-  } catch (err) {
-    return jsonFailFromError(err);
+  } catch (e) {
+    return fail("SERVER_ERROR", e?.message || String(e), e, 500);
   }
 });

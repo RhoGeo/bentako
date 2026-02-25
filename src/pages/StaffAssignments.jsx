@@ -1,8 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { ArrowLeft, Users } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { base44 } from "@/api/base44Client";
+import { useQueryClient } from "@tanstack/react-query";
 import { useStoresForUser } from "@/components/lib/useStores";
 import { useActiveStoreId } from "@/components/lib/activeStore";
 import { useCurrentStaff } from "@/components/lib/useCurrentStaff";
@@ -13,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
+import { invokeFunction } from "@/api/posyncClient";
 
 /**
  * StaffAssignments
@@ -23,27 +23,19 @@ export default function StaffAssignments() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { storeId } = useActiveStoreId();
-  const { stores, user } = useStoresForUser();
+  const { stores, memberships, user } = useStoresForUser();
   const { staffMember } = useCurrentStaff(storeId);
 
   const canManage = can(staffMember, "staff_manage");
 
-  const { data: myMemberships = [] } = useQuery({
-    queryKey: ["my-memberships", user?.email],
-    enabled: !!user?.email,
-    queryFn: () => base44.entities.StaffMember.filter({ user_email: user.email, is_active: true }),
-    initialData: [],
-    staleTime: 60_000,
-  });
-
   const ownerStoreIds = useMemo(
-    () => myMemberships.filter((m) => m.role === "owner").map((m) => m.store_id),
-    [myMemberships]
+    () => (memberships || []).filter((m) => m.role === "owner").map((m) => m.store_id),
+    [memberships]
   );
 
   const ownerStores = useMemo(() => {
     const set = new Set(ownerStoreIds);
-    return (stores || []).filter((s) => set.has(s.store_id));
+    return (stores || []).filter((s) => set.has(s.store_id || s.id));
   }, [stores, ownerStoreIds]);
 
   const [form, setForm] = useState({
@@ -71,24 +63,11 @@ export default function StaffAssignments() {
 
     setSaving(true);
     try {
-      for (const sid of form.storeIds) {
-        const existing = await base44.entities.StaffMember.filter({ store_id: sid, user_email: email });
-        if (existing?.[0]) {
-          await base44.entities.StaffMember.update(existing[0].id, {
-            user_name: form.user_name || existing[0].user_name,
-            role: form.role,
-            is_active: true,
-          });
-        } else {
-          await base44.entities.StaffMember.create({
-            store_id: sid,
-            user_email: email,
-            user_name: form.user_name || email,
-            role: form.role,
-            is_active: true,
-          });
-        }
-      }
+      await invokeFunction("assignStaffToStores", {
+        user_email: email,
+        role: form.role,
+        store_ids: form.storeIds,
+      });
       toast.success("Staff assigned.");
       queryClient.invalidateQueries({ queryKey: ["staff-list"] });
       setForm({ user_email: "", user_name: "", role: "cashier", storeIds: [] });
@@ -165,10 +144,10 @@ export default function StaffAssignments() {
             <div className="space-y-2">
               {ownerStores.map((s) => (
                 <label key={s.store_id} className="flex items-center gap-2 bg-stone-50 rounded-lg px-3 py-2">
-                  <Checkbox checked={form.storeIds.includes(s.store_id)} onCheckedChange={() => toggleStore(s.store_id)} />
+                  <Checkbox checked={form.storeIds.includes(s.store_id || s.id)} onCheckedChange={() => toggleStore(s.store_id || s.id)} />
                   <div className="min-w-0">
                     <div className="text-sm font-medium text-stone-700 truncate">{s.store_name}</div>
-                    <div className="text-[11px] text-stone-400 truncate">{s.store_id}</div>
+                    <div className="text-[11px] text-stone-400 truncate">{s.store_id || s.id}</div>
                   </div>
                 </label>
               ))}

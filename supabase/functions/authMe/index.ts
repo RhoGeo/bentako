@@ -1,30 +1,17 @@
-import { corsHeaders } from "../_shared/cors.ts";
-import { jsonFail, jsonFailFromError, jsonOk } from "../_shared/response.ts";
+import { ok, fail, json } from "../_shared/http.ts";
 import { requireAuth, listMembershipsAndStores } from "../_shared/auth.ts";
 
-Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return json({}, { status: 200 });
+  if (req.method !== "POST") return fail("METHOD_NOT_ALLOWED", "Use POST", undefined, 405);
 
   try {
     const { user } = await requireAuth(req);
     const { memberships, stores } = await listMembershipsAndStores(user.user_id);
-
-    return jsonOk({
-      user: {
-        user_id: user.user_id,
-        full_name: user.full_name,
-        phone_number: user.phone_number,
-        email: user.email,
-      },
-      memberships,
-      stores,
-    });
-  } catch (err) {
-    // Make auth errors 401 for better UX
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.toLowerCase().includes("unauthorized") || msg.toLowerCase().includes("expired") || msg.toLowerCase().includes("missing")) {
-      return jsonFail(401, "UNAUTHORIZED", msg);
-    }
-    return jsonFailFromError(err);
+    return ok({ user, memberships, stores });
+  } catch (e) {
+    const msg = e?.message || String(e);
+    const code = msg === "AUTH_REQUIRED" || msg === "AUTH_EXPIRED" ? "AUTH_REQUIRED" : "SERVER_ERROR";
+    return fail(code, code === "AUTH_REQUIRED" ? "Authentication required" : msg, e, 401);
   }
 });

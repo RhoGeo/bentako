@@ -411,6 +411,7 @@ export default function Counter() {
       {/* Payment Drawer */}
       <PaymentDrawer
         open={paymentOpen}
+        storeId={STORE_ID}
         cartTotalCentavos={totalCentavos}
         customers={customers}
         onConfirm={handlePaymentConfirm}

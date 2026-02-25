@@ -1,4 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
+import AddCustomerDialog from "@/components/customers/AddCustomerDialog";
+import { upsertCachedCustomers } from "@/lib/db";
+
 import {
   Sheet,
   SheetContent,
@@ -52,6 +55,7 @@ function newPaymentLine(method = "cash") {
 
 export default function PaymentDrawer({
   open,
+  storeId,
   cartTotalCentavos = 0,
   defaultStatus = "completed",
   customers = [],
@@ -62,6 +66,7 @@ export default function PaymentDrawer({
   const [payments, setPayments] = useState([newPaymentLine("cash")]);
   const [customerId, setCustomerId] = useState("");
   const [notes, setNotes] = useState("");
+  const [addCustomerOpen, setAddCustomerOpen] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -69,6 +74,7 @@ export default function PaymentDrawer({
     setPayments([newPaymentLine("cash")]);
     setCustomerId("");
     setNotes("");
+    setAddCustomerOpen(false);
   }, [open, defaultStatus]);
 
   const paymentCentavos = useMemo(() => {
@@ -381,7 +387,16 @@ export default function PaymentDrawer({
           {/* Customer for Utang */}
           {saleStatus === "due" && (
             <div>
-              <Label className="text-xs text-stone-500 mb-2 block">Customer (Utang)</Label>
+              <div className="flex items-center justify-between mb-2">
+                <Label className="text-xs text-stone-500 block">Customer (Utang)</Label>
+                <button
+                  type="button"
+                  onClick={() => setAddCustomerOpen(true)}
+                  className="text-xs font-semibold text-blue-700 flex items-center gap-1.5 active:scale-95 transition-transform"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Add
+                </button>
+              </div>
               <Select value={customerId} onValueChange={setCustomerId}>
                 <SelectTrigger className="h-12">
                   <SelectValue placeholder="Piliin ang customer" />
@@ -411,6 +426,18 @@ export default function PaymentDrawer({
               )}
             </div>
           )}
+
+          <AddCustomerDialog
+            open={addCustomerOpen}
+            onOpenChange={setAddCustomerOpen}
+            storeId={storeId}
+            onCreated={async (customer) => {
+              try {
+                await upsertCachedCustomers([customer], storeId);
+              } catch (_e) {}
+              setCustomerId(customer?.id || "");
+            }}
+          />
 
           {/* Notes */}
           <div>
