@@ -13,12 +13,10 @@ import BarcodeScannerModal from "@/components/global/BarcodeScannerModal";
 import WedgeScannerInput from "@/components/counter/WedgeScannerInput";
 import CentavosDisplay from "@/components/shared/CentavosDisplay";
 
-import { Plus, Package, TrendingDown, TrendingUp, AlertTriangle, XCircle, SlidersHorizontal } from "lucide-react";
+import { Plus, Package, TrendingDown, TrendingUp, AlertTriangle, XCircle } from "lucide-react";
 
 import { useActiveStoreId } from "@/components/lib/activeStore";
 import { useStoreSettings } from "@/components/lib/useStoreSettings";
-import { useCurrentStaff } from "@/components/lib/useCurrentStaff";
-import { can } from "@/components/lib/permissions";
 import { normalizeBarcode, normalizeBarcode as normalizeBc } from "@/components/lib/deviceId";
 import {
   getCachedProductByBarcode,
@@ -26,10 +24,9 @@ import {
   upsertCachedProducts,
 } from "@/components/lib/db";
 
-import { getInventoryTag, getStockQty, normalizeForMatch, getEffectiveThresholds } from "@/components/inventory/inventoryRules";
+import { getInventoryTag, getStockQty, normalizeForMatch } from "@/components/inventory/inventoryRules";
 import InventoryTagBadge from "@/components/inventory/InventoryTagBadge";
 import RestockItemDrawer from "@/components/inventory/RestockItemDrawer";
-import AdjustStockDrawer from "@/components/inventory/AdjustStockDrawer";
 import CsvRestockCard from "@/components/inventory/CsvRestockCard";
 
 const VIEW_FILTERS = ["All", "Critical", "Low", "Out of Stock"];
@@ -56,10 +53,7 @@ export default function Items() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { storeId } = useActiveStoreId();
-  const { settings, rawSettings } = useStoreSettings(storeId);
-  const { staffMember, user } = useCurrentStaff(storeId);
-  const canCreateEdit = can(staffMember, "inventory_create_edit");
-  const canAdjustStock = can(staffMember, "inventory_adjust_stock");
+  const { settings } = useStoreSettings(storeId);
 
   const urlParams = new URLSearchParams(window.location.search);
   const initialFilter = urlParams.get("filter");
@@ -82,8 +76,6 @@ export default function Items() {
   );
   const [sortKey, setSortKey] = useState("stock_asc");
 
-  const [adjustOpen, setAdjustOpen] = useState(false);
-  const [adjustProduct, setAdjustProduct] = useState(null);
   const [restockOpen, setRestockOpen] = useState(false);
   const [restockProduct, setRestockProduct] = useState(null);
 
@@ -268,24 +260,20 @@ export default function Items() {
           </CardContent>
         </Card>
 
-        {/* CSV + Restock checklist cards (permission gated) */}
-        {canAdjustStock && (
-          <CsvRestockCard storeId={storeId} settings={settings} products={computed.rows.map((r) => r.product)} />
-        )}
+        {/* CSV + Restock checklist cards */}
+        <CsvRestockCard storeId={storeId} settings={settings} products={computed.rows.map((r) => r.product)} />
 
-        {canAdjustStock && (
-          <Card className="border-stone-100 shadow-sm">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Restock Checklists</CardTitle>
-              <p className="text-xs text-stone-500">Restock only what you selected (Critical / Low / All stocked).</p>
-            </CardHeader>
-            <CardContent>
-              <Button className="w-full h-11 bg-blue-600 hover:bg-blue-700" onClick={() => navigate(createPageUrl("RestockChecklist"))}>
-                Start Restocking
-              </Button>
-            </CardContent>
-          </Card>
-        )}
+        <Card className="border-stone-100 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Restock Checklists</CardTitle>
+            <p className="text-xs text-stone-500">Restock only what you selected (Critical / Low / All stocked).</p>
+          </CardHeader>
+          <CardContent>
+            <Button className="w-full h-11 bg-blue-600 hover:bg-blue-700" onClick={() => navigate(createPageUrl("RestockChecklist"))}>
+              Start Restocking
+            </Button>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Search + Sort + Add */}
@@ -302,15 +290,13 @@ export default function Items() {
               onScanIconClick={() => setScannerOpen(true)}
             />
           </div>
-          {canCreateEdit && (
-            <Button
-              onClick={() => navigate(createPageUrl("ProductForm"))}
-              className="h-12 w-12 bg-blue-600 hover:bg-blue-700 p-0 rounded-xl touch-target"
-              title="Add new product"
-            >
-              <Plus className="w-5 h-5" />
-            </Button>
-          )}
+          <Button
+            onClick={() => navigate(createPageUrl("ProductForm"))}
+            className="h-12 w-12 bg-blue-600 hover:bg-blue-700 p-0 rounded-xl touch-target"
+            title="Add new product"
+          >
+            <Plus className="w-5 h-5" />
+          </Button>
         </div>
 
         <div className="flex items-center gap-2 mt-3">
@@ -368,13 +354,7 @@ export default function Items() {
                 className="w-full bg-white rounded-2xl p-4 border border-stone-100 shadow-sm flex items-center gap-3 text-left"
                 role="button"
                 tabIndex={0}
-                onClick={() => {
-                  if (!canCreateEdit) {
-                    toast.error("Read-only. Ask the Owner/Manager to edit items.");
-                    return;
-                  }
-                  navigate(createPageUrl("ProductForm") + `?id=${product.id}`);
-                }}
+                onClick={() => navigate(createPageUrl("ProductForm") + `?id=${product.id}`)}
               >
                 <div className="w-12 h-12 rounded-xl bg-stone-50 flex items-center justify-center flex-shrink-0 overflow-hidden">
                   {/* If product has image_url, show it; else fallback icon */}
@@ -417,32 +397,17 @@ export default function Items() {
                   </div>
                 </div>
 
-                {canAdjustStock && (
-                  <div className="flex flex-col gap-1 flex-shrink-0">
-                    <button
-                      className="h-6 w-12 rounded-xl bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center touch-target"
-                      title="Restock"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setRestockProduct(product);
-                        setRestockOpen(true);
-                      }}
-                    >
-                      <Plus className="w-4 h-4" />
-                    </button>
-                    <button
-                      className="h-6 w-12 rounded-xl bg-white border border-stone-200 text-stone-700 hover:bg-stone-50 flex items-center justify-center touch-target"
-                      title="Adjust stock"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setAdjustProduct(product);
-                        setAdjustOpen(true);
-                      }}
-                    >
-                      <SlidersHorizontal className="w-4 h-4" />
-                    </button>
-                  </div>
-                )}
+                <button
+                  className="h-12 w-12 rounded-xl bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center flex-shrink-0 touch-target"
+                  title="Add stocks"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setRestockProduct(product);
+                    setRestockOpen(true);
+                  }}
+                >
+                  <Plus className="w-5 h-5" />
+                </button>
               </div>
             );
           })
@@ -454,25 +419,16 @@ export default function Items() {
         open={scannerOpen}
         mode="single"
         context="items"
-        allowAddNew={canCreateEdit}
         onLookup={async (barcode) => {
           const p = await lookupBarcode(barcode);
           if (p) {
             setScannerOpen(false);
-            if (!canCreateEdit) {
-              toast.error("Read-only. Ask the Owner/Manager to edit items.");
-              return { found: true, handled: true, label: p.name };
-            }
             navigate(createPageUrl("ProductForm") + `?id=${p.id}`);
             return { found: true, handled: true, label: p.name };
           }
           return { found: false };
         }}
         onAddNew={(barcode) => {
-          if (!canCreateEdit) {
-            toast.error("No permission to add items.");
-            return;
-          }
           setScannerOpen(false);
           navigate(createPageUrl("ProductForm") + `?barcode=${barcode}`);
         }}
@@ -489,22 +445,6 @@ export default function Items() {
         monthlySold={Number(monthlySoldMap?.[restockProduct?.id] || 0)}
         onQueued={async () => {
           // refresh offline products view and server query (if online)
-          const cached = await getAllCachedProducts(storeId);
-          setOfflineProducts(cached);
-          queryClient.invalidateQueries({ queryKey: ["products-all", storeId] });
-        }}
-      />
-
-      {/* Adjust stock drawer */}
-      <AdjustStockDrawer
-        open={adjustOpen}
-        onClose={() => setAdjustOpen(false)}
-        storeId={storeId}
-        settings={settings}
-        rawSettings={rawSettings}
-        product={adjustProduct}
-        actorEmail={user?.email}
-        onQueued={async () => {
           const cached = await getAllCachedProducts(storeId);
           setOfflineProducts(cached);
           queryClient.invalidateQueries({ queryKey: ["products-all", storeId] });

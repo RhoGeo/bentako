@@ -2,48 +2,39 @@ import React, { useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { Store, ChevronRight, Layers } from "lucide-react";
-import { useStoresForUser } from "@/components/lib/useStores";
-import { setActiveStoreId, useActiveStoreId, hasActiveStoreSelection } from "@/components/lib/activeStore";
-import { useQuery } from "@tanstack/react-query";
-import { base44 } from "@/api/base44Client";
+import { useMyStores } from "@/components/lib/storeScope";
+import { useStoreScope, getActiveStoreId } from "@/components/lib/storeScope";
 
 export default function StoreSwitcher() {
   const navigate = useNavigate();
-  const { storeId } = useActiveStoreId();
-  const { stores, isLoading, user } = useStoresForUser({ includeArchived: false });
+  const { storeId, setStoreId } = useStoreScope();
+  const storesQ = useMyStores();
+  const stores = storesQ.data || [];
 
-  const { data: myMemberships = [] } = useQuery({
-    queryKey: ["my-memberships", user?.email],
-    enabled: !!user?.email,
-    queryFn: () => base44.entities.StaffMember.filter({ user_email: user.email, is_active: true }),
-    initialData: [],
-    staleTime: 60_000,
-  });
-
+  const active = getActiveStoreId();
   const hasMultiple = stores.length > 1;
-  const allowed = new Set(stores.map((s) => s.store_id));
-  const activeIsValid = allowed.has(storeId);
-  const isOwnerAny = myMemberships.some((m) => m.role === "owner");
+  const activeIsValid = !!stores.find((s) => s.id === active);
+  const isOwnerAny = stores.some((s) => String(s.membership?.role || "").toLowerCase() === "owner");
 
   useEffect(() => {
-    if (isLoading) return;
+    if (storesQ.isLoading) return;
     if (!stores.length) return;
-
     if (!hasMultiple) {
-      const only = stores[0]?.store_id;
-      if (only) {
-        setActiveStoreId(only);
+      const only = stores[0];
+      if (only?.id) {
+        setStoreId(only.id);
         navigate(createPageUrl("Counter"), { replace: true });
       }
       return;
     }
-
-    if (activeIsValid && hasActiveStoreSelection()) {
+    // If previously selected store is still valid, let user continue.
+    if (activeIsValid && active) {
+      setStoreId(active);
       navigate(createPageUrl("Counter"), { replace: true });
     }
-  }, [isLoading, stores.length, hasMultiple, activeIsValid]);
+  }, [storesQ.isLoading]);
 
-  if (isLoading) {
+  if (storesQ.isLoading) {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-stone-50">
         <div className="w-8 h-8 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin" />
@@ -52,6 +43,7 @@ export default function StoreSwitcher() {
   }
 
   if (!hasMultiple) {
+    // Will auto-redirect in effect.
     return null;
   }
 
@@ -86,21 +78,19 @@ export default function StoreSwitcher() {
         <div className="bg-white rounded-2xl border border-stone-100 shadow-sm overflow-hidden">
           {stores.map((s, idx) => (
             <button
-              key={s.store_id}
+              key={s.id}
               onClick={() => {
-                setActiveStoreId(s.store_id);
+                setStoreId(s.id);
                 navigate(createPageUrl("Counter"), { replace: true });
               }}
-              className={`w-full flex items-center gap-3 px-4 py-4 text-left hover:bg-stone-50 ${
-                idx < stores.length - 1 ? "border-b border-stone-50" : ""
-              }`}
+              className={`w-full flex items-center gap-3 px-4 py-4 text-left hover:bg-stone-50 ${idx < stores.length - 1 ? "border-b border-stone-50" : ""}`}
             >
               <div className="w-10 h-10 rounded-lg bg-stone-50 flex items-center justify-center flex-shrink-0">
                 <Store className="w-5 h-5 text-stone-400" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-stone-800 truncate">{s.store_name || s.store_id}</p>
-                <p className="text-[11px] text-stone-400 truncate">{s.store_id}</p>
+                <p className="text-sm font-semibold text-stone-800 truncate">{s.store_name || s.name || s.id}</p>
+                <p className="text-[11px] text-stone-400 truncate">{s.id}</p>
               </div>
               <ChevronRight className="w-4 h-4 text-stone-300" />
             </button>

@@ -121,27 +121,6 @@ Store scoping:
 
 ---
 
-## Staff Invites (Link-based)
-
-1. Owner: More → Staff & Roles → Staff Invites → New Invite
-2. Create invite for a specific email + role.
-   - Expected: invite link is generated and copied.
-3. Open invite link in an incognito window or another device.
-4. Log in as the invited email.
-5. AcceptInvite page → Accept.
-   - Expected: StaffMember is created/activated for that store.
-
-## Archive Store
-
-1. Owner: More → Store Settings → Danger Zone → Archive Store
-   - Expected: Store becomes hidden from store picker.
-2. More → My Stores
-   - Expected: Store shows “Archived” badge and “Unarchive Store” button (owner only).
-3. Unarchive store.
-   - Expected: Store appears in store picker again.
-
----
-
 ## Inventory Management (Counts + Tags + Restock Tools)
 
 ### Inventory Counts + Tagging

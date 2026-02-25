@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ArrowLeft, UserCog, Plus, ChevronRight, ShieldCheck, Shield, Link2, Copy, XCircle } from "lucide-react";
+import { ArrowLeft, UserCog, Plus, ChevronRight, ShieldCheck, Shield } from "lucide-react";
 import { useNavigate, Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
@@ -26,25 +26,10 @@ export default function Staff() {
   const [addForm, setAddForm] = useState({ user_email: "", user_name: "", role: "cashier" });
   const [saving, setSaving] = useState(false);
 
-  const [inviteOpen, setInviteOpen] = useState(false);
-  const [inviteForm, setInviteForm] = useState({ invite_email: "", role: "cashier" });
-  const [inviteLink, setInviteLink] = useState("");
-
   const { data: staffList = [] } = useQuery({
     queryKey: ["staff-list", storeId],
     queryFn: () => base44.entities.StaffMember.filter({ store_id: storeId, is_active: true }),
     initialData: [],
-  });
-
-  const { data: invites = [] } = useQuery({
-    queryKey: ["staff-invites", storeId],
-    enabled: canManage && navigator.onLine,
-    queryFn: async () => {
-      const res = await base44.functions.invoke("listStaffInvites", { store_id: storeId });
-      return res?.data?.data?.invites || res?.data?.invites || [];
-    },
-    initialData: [],
-    staleTime: 15_000,
   });
 
   const handleAdd = async () => {
@@ -64,36 +49,6 @@ export default function Staff() {
     await auditLog("member_role_changed", `Staff deactivated: ${member.user_email}`, { actor_email: user?.email, metadata: { target_email: member.user_email } });
     queryClient.invalidateQueries({ queryKey: ["staff-list", storeId] });
     toast.success("Staff member removed.");
-  };
-
-  const handleInvite = async () => {
-    if (!inviteForm.invite_email.trim()) { toast.error("Email required."); return; }
-    const res = await base44.functions.invoke("inviteStaff", {
-      store_id: storeId,
-      invite_email: inviteForm.invite_email.trim(),
-      role: inviteForm.role,
-    });
-    const data = res?.data?.data || res?.data;
-    const token = data?.invite_token;
-    if (!token) {
-      toast.error(data?.error?.message || "Invite failed.");
-      return;
-    }
-    const url = `${window.location.origin}${createPageUrl("AcceptInvite")}?token=${encodeURIComponent(token)}`;
-    setInviteLink(url);
-    try {
-      await navigator.clipboard.writeText(url);
-      toast.success("Invite link copied!");
-    } catch {
-      toast.success("Invite created.");
-    }
-    queryClient.invalidateQueries({ queryKey: ["staff-invites", storeId] });
-  };
-
-  const handleRevokeInvite = async (invite_id) => {
-    await base44.functions.invoke("revokeStaffInvite", { store_id: storeId, invite_id });
-    toast.success("Invite revoked.");
-    queryClient.invalidateQueries({ queryKey: ["staff-invites", storeId] });
   };
 
   return (
@@ -171,102 +126,15 @@ export default function Staff() {
           ))}
         </div>
 
-        {can(staffMember, "permissions_manage") && (
-          <Link to={createPageUrl("Permissions")}>
-            <div className="flex items-center gap-3 bg-white rounded-xl border border-stone-100 px-4 py-3.5 mt-2">
-              <div className="w-9 h-9 rounded-lg bg-purple-50 flex items-center justify-center">
-                <ShieldCheck className="w-4 h-4 text-purple-500" />
-              </div>
-              <span className="text-sm font-medium text-stone-700 flex-1">Configure Permissions</span>
-              <ChevronRight className="w-4 h-4 text-stone-300" />
+        <Link to={createPageUrl("Permissions")}>
+          <div className="flex items-center gap-3 bg-white rounded-xl border border-stone-100 px-4 py-3.5 mt-2">
+            <div className="w-9 h-9 rounded-lg bg-purple-50 flex items-center justify-center">
+              <ShieldCheck className="w-4 h-4 text-purple-500" />
             </div>
-          </Link>
-        )}
-
-        {/* Invites (link-based) */}
-        {canManage && (
-          <div className="bg-white rounded-xl border border-stone-100 p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold text-stone-800 flex items-center gap-2">
-                <Link2 className="w-4 h-4 text-blue-600" /> Staff Invites
-              </p>
-              <Button variant="outline" className="h-9" onClick={() => setInviteOpen((v) => !v)}>
-                {inviteOpen ? "Close" : "New Invite"}
-              </Button>
-            </div>
-
-            {inviteOpen && (
-              <div className="space-y-3">
-                <div>
-                  <Label className="text-xs text-stone-500 mb-1 block">Invite Email</Label>
-                  <Input
-                    value={inviteForm.invite_email}
-                    onChange={(e) => setInviteForm((f) => ({ ...f, invite_email: e.target.value }))}
-                    className="h-11"
-                    inputMode="email"
-                    autoCapitalize="none"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs text-stone-500 mb-1 block">Role</Label>
-                  <Select value={inviteForm.role} onValueChange={(v) => setInviteForm((f) => ({ ...f, role: v }))}>
-                    <SelectTrigger className="h-11"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="owner">Owner</SelectItem>
-                      <SelectItem value="manager">Manager</SelectItem>
-                      <SelectItem value="cashier">Cashier</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <Button className="w-full h-11 bg-blue-600 hover:bg-blue-700" onClick={handleInvite}>
-                  Create Invite Link
-                </Button>
-
-                {inviteLink && (
-                  <div className="bg-stone-50 border border-stone-200 rounded-xl p-3">
-                    <p className="text-xs text-stone-500 mb-2">Share this link with the invited staff:</p>
-                    <div className="flex items-center gap-2">
-                      <Input value={inviteLink} readOnly className="h-10 font-mono text-xs bg-white" />
-                      <Button
-                        variant="outline"
-                        className="h-10 px-3"
-                        onClick={async () => {
-                          await navigator.clipboard.writeText(inviteLink);
-                          toast.success("Copied.");
-                        }}
-                      >
-                        <Copy className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {invites.length > 0 && (
-              <div className="pt-2">
-                <p className="text-xs text-stone-500 mb-2">Pending invites</p>
-                <div className="space-y-2">
-                  {invites.map((inv) => (
-                    <div key={inv.id} className="flex items-center gap-2 bg-stone-50 border border-stone-100 rounded-xl p-3">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-stone-800 truncate">{inv.invite_email}</p>
-                        <p className="text-[11px] text-stone-400">Role: {inv.role} · Expires: {inv.expires_at ? new Date(inv.expires_at).toLocaleDateString("en-PH") : "—"}</p>
-                      </div>
-                      <button
-                        className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1"
-                        onClick={() => handleRevokeInvite(inv.id)}
-                        title="Revoke"
-                      >
-                        <XCircle className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+            <span className="text-sm font-medium text-stone-700 flex-1">Configure Permissions</span>
+            <ChevronRight className="w-4 h-4 text-stone-300" />
           </div>
-        )}
+        </Link>
       </div>
     </div>
   );

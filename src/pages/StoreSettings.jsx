@@ -32,7 +32,6 @@ export default function StoreSettings() {
   const [newPin, setNewPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
   const [saving, setSaving] = useState(false);
-  const [archiving, setArchiving] = useState(false);
 
   useEffect(() => {
     if (settings) {
@@ -93,32 +92,6 @@ export default function StoreSettings() {
     setOldPin(""); setNewPin(""); setConfirmPin("");
   };
 
-  const isArchived = !!rawSettings?.is_archived;
-
-  const handleArchiveToggle = async () => {
-    if (!isOwner) { toast.error("Owner only."); return; }
-    const confirmMsg = isArchived
-      ? "Unarchive this store? It will appear in store picker again."
-      : "Archive this store? It will be hidden from store picker. Staff will not see it until unarchived.";
-    if (!window.confirm(confirmMsg)) return;
-
-    setArchiving(true);
-    try {
-      const fn = isArchived ? "unarchiveStore" : "archiveStore";
-      const res = await base44.functions.invoke(fn, { store_id: storeId });
-      const ok = res?.data?.ok;
-      if (ok === false) {
-        toast.error(res?.data?.error?.message || "Failed.");
-        return;
-      }
-      queryClient.invalidateQueries({ queryKey: ["store-settings", storeId] });
-      queryClient.invalidateQueries({ queryKey: ["user-stores"] });
-      toast.success(isArchived ? "Store unarchived." : "Store archived.");
-    } finally {
-      setArchiving(false);
-    }
-  };
-
   if (!form) return <div className="p-8 text-center text-stone-400 text-sm">Loading…</div>;
 
   const Toggle = ({ field, label, desc, disabled }) => (
@@ -157,20 +130,6 @@ export default function StoreSettings() {
         <section>
           <h2 className="text-xs font-semibold text-stone-400 uppercase tracking-wider mb-3">Store Profile</h2>
           <div className="bg-white rounded-xl border border-stone-100 p-4 space-y-4">
-            <div>
-              <Label className="text-xs text-stone-500 mb-1.5 block">Store ID (share with staff)</Label>
-              <div className="flex items-center gap-2">
-                <Input value={storeId} readOnly className="h-11 font-mono text-sm bg-stone-50 text-stone-500" />
-                <Button
-                  variant="outline"
-                  className="h-11 px-3 flex-shrink-0"
-                  onClick={() => { navigator.clipboard.writeText(storeId); toast.success("Store ID copied!"); }}
-                  type="button"
-                >
-                  Copy
-                </Button>
-              </div>
-            </div>
             <div>
               <Label className="text-xs text-stone-500 mb-1.5 block">Store Name</Label>
               <Input value={form.store_name} onChange={(e) => updateField("store_name", e.target.value)} className="h-11" disabled={!isOwner} />
@@ -241,34 +200,6 @@ export default function StoreSettings() {
           <div className="bg-white rounded-xl border border-stone-100 px-4">
             <Toggle field="auto_sync_on_reconnect" label="Auto-sync on Reconnect" desc="Automatically push queued events when internet is restored." disabled={!isOwner} />
             <Toggle field="auto_sync_after_event" label="Auto-sync after Each Event" desc="Attempt sync immediately after each queued action." disabled={!isOwner} />
-          </div>
-        </section>
-
-        {/* Danger Zone */}
-        <section>
-          <h2 className="text-xs font-semibold text-stone-400 uppercase tracking-wider mb-3">Danger Zone</h2>
-          <div className="bg-white rounded-xl border border-stone-100 p-4">
-            <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center flex-shrink-0">
-                <AlertTriangle className="w-5 h-5 text-red-600" />
-              </div>
-              <div className="flex-1">
-                <p className="text-sm font-semibold text-stone-800">{isArchived ? "Store is Archived" : "Archive Store"}</p>
-                <p className="text-xs text-stone-500 mt-0.5">
-                  {isArchived
-                    ? "This store is hidden from the store picker. Unarchive to use it again."
-                    : "Hide this store from the store picker without deleting data."}
-                </p>
-              </div>
-            </div>
-            <Button
-              variant={isArchived ? "outline" : "destructive"}
-              className="w-full mt-3 h-11"
-              onClick={handleArchiveToggle}
-              disabled={!isOwner || archiving}
-            >
-              {archiving ? "Working…" : isArchived ? "Unarchive Store" : "Archive Store"}
-            </Button>
           </div>
         </section>
       </div>

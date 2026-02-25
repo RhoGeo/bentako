@@ -20,8 +20,6 @@ import BarcodeScannerModal from "@/components/global/BarcodeScannerModal";
 import { normalizeBarcode } from "@/components/lib/deviceId";
 import { upsertCachedProducts } from "@/components/lib/db";
 import { useActiveStoreId } from "@/components/lib/activeStore";
-import { useCurrentStaff } from "@/components/lib/useCurrentStaff";
-import PermissionGate from "@/components/global/PermissionGate";
 
 const CATEGORIES = ["Drinks", "Snacks", "Canned", "Hygiene", "Rice", "Condiments", "Frozen", "Others"];
 
@@ -29,7 +27,6 @@ export default function ProductForm() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { storeId } = useActiveStoreId();
-  const { staffMember, isLoading: staffLoading } = useCurrentStaff(storeId);
   const urlParams = new URLSearchParams(window.location.search);
   const productId = urlParams.get("id");
   const prefillBarcode = urlParams.get("barcode") || "";
@@ -262,13 +259,8 @@ export default function ProductForm() {
 
   const isParent = form.product_type === "parent";
 
-  if (staffLoading) {
-    return <div className="p-8 text-center text-stone-400 text-sm">Loading…</div>;
-  }
-
   return (
-    <PermissionGate staffMember={staffMember} permission="inventory_create_edit" block>
-      <div className="pb-24">
+    <div className="pb-24">
       {/* Header */}
       <div className="sticky top-0 bg-white/95 backdrop-blur-sm border-b border-stone-100 px-4 py-3 flex items-center gap-3 z-20">
         <button onClick={() => navigate(-1)} className="touch-target">
@@ -522,7 +514,6 @@ export default function ProductForm() {
         onAddNew={() => setScannerOpen(false)}
         onClose={() => setScannerOpen(false)}
       />
-      </div>
-    </PermissionGate>
+    </div>
   );
 }

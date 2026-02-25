@@ -1,167 +1,108 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
-import { appParams } from '@/lib/app-params';
-// Avoid deep imports from SDK internals. Use a small fetch helper instead.
+import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { supabase, base44 } from "@/api/base44Client";
 
-async function fetchJson(url, { headers } = {}) {
-  const res = await fetch(url, { headers });
-  const text = await res.text();
-  let data = null;
-  try { data = text ? JSON.parse(text) : null; } catch (_e) { data = text; }
-  if (!res.ok) {
-    const err = new Error(data?.message || data?.error?.message || `Request failed (${res.status})`);
-    err.status = res.status;
-    err.data = data;
-    throw err;
-  }
-  return data;
-}
-
-const AuthContext = createContext();
+const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
-  const [isLoadingPublicSettings, setIsLoadingPublicSettings] = useState(true);
   const [authError, setAuthError] = useState(null);
-  const [appPublicSettings, setAppPublicSettings] = useState(null); // Contains only { id, public_settings }
 
   useEffect(() => {
-    checkAppState();
-  }, []);
+    let mounted = true;
 
-  const checkAppState = async () => {
-    try {
-      setIsLoadingPublicSettings(true);
+    async function init() {
+      setIsLoadingAuth(true);
       setAuthError(null);
-      
-      // First, check app public settings (with token if available)
-      // This will tell us if auth is required, user not registered, etc.
-      const headers = { 'X-App-Id': appParams.appId };
-      if (appParams.token) headers['Authorization'] = `Bearer ${appParams.token}`;
-      
-      try {
-        const resp = await fetchJson(`/api/apps/public/prod/public-settings/by-id/${appParams.appId}`, { headers });
-        const publicSettings = resp?.data ?? resp;
-        setAppPublicSettings(publicSettings);
-        
-        // If we got the app public settings successfully, check if user is authenticated
-        if (appParams.token) {
-          await checkUserAuth();
-        } else {
-          setIsLoadingAuth(false);
-          setIsAuthenticated(false);
-        }
-        setIsLoadingPublicSettings(false);
-      } catch (appError) {
-        console.error('App state check failed:', appError);
-        
-        // Handle app-level errors
-        const reason =
-          appError?.data?.extra_data?.reason ||
-          appError?.data?.error?.details?.extra_data?.reason ||
-          appError?.data?.error?.extra_data?.reason;
 
-        if (appError.status === 403 && reason) {
-          if (reason === 'auth_required') {
-            setAuthError({
-              type: 'auth_required',
-              message: 'Authentication required'
-            });
-          } else if (reason === 'user_not_registered') {
-            setAuthError({
-              type: 'user_not_registered',
-              message: 'User not registered for this app'
-            });
-          } else {
-            setAuthError({
-              type: reason,
-              message: appError.message
-            });
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) throw error;
+
+        const hasSession = !!data?.session;
+        if (mounted) {
+          setIsAuthenticated(hasSession);
+        }
+
+        if (hasSession) {
+          try {
+            const me = await base44.auth.me();
+            if (mounted) setUser(me);
+          } catch (_e) {
+            // If token exists but user fetch fails, treat as signed out.
+            if (mounted) {
+              setUser(null);
+              setIsAuthenticated(false);
+            }
           }
         } else {
-          setAuthError({
-            type: 'unknown',
-            message: appError.message || 'Failed to load app'
-          });
+          if (mounted) setUser(null);
         }
-        setIsLoadingPublicSettings(false);
-        setIsLoadingAuth(false);
-      }
-    } catch (error) {
-      console.error('Unexpected error:', error);
-      setAuthError({
-        type: 'unknown',
-        message: error.message || 'An unexpected error occurred'
-      });
-      setIsLoadingPublicSettings(false);
-      setIsLoadingAuth(false);
-    }
-  };
-
-  const checkUserAuth = async () => {
-    try {
-      // Now check if the user is authenticated
-      setIsLoadingAuth(true);
-      const currentUser = await base44.auth.me();
-      setUser(currentUser);
-      setIsAuthenticated(true);
-      setIsLoadingAuth(false);
-    } catch (error) {
-      console.error('User auth check failed:', error);
-      setIsLoadingAuth(false);
-      setIsAuthenticated(false);
-      
-      // If user auth fails, it might be an expired token
-      if (error.status === 401 || error.status === 403) {
-        setAuthError({
-          type: 'auth_required',
-          message: 'Authentication required'
-        });
+      } catch (e) {
+        if (mounted) {
+          setUser(null);
+          setIsAuthenticated(false);
+          setAuthError({ type: "auth_error", message: e?.message || "Auth error" });
+        }
+      } finally {
+        if (mounted) setIsLoadingAuth(false);
       }
     }
-  };
 
-  const logout = (shouldRedirect = true) => {
-    setUser(null);
-    setIsAuthenticated(false);
-    
+    init();
+
+    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      setIsAuthenticated(!!session);
+      if (!session) {
+        setUser(null);
+        return;
+      }
+      try {
+        const me = await base44.auth.me();
+        setUser(me);
+      } catch (_e) {
+        setUser(null);
+      }
+    });
+
+    return () => {
+      mounted = false;
+      sub?.subscription?.unsubscribe();
+    };
+  }, []);
+
+  const logout = async (shouldRedirect = true) => {
+    await base44.auth.logout();
     if (shouldRedirect) {
-      // Use the SDK's logout method which handles token cleanup and redirect
-      base44.auth.logout(window.location.href);
-    } else {
-      // Just remove the token without redirect
-      base44.auth.logout();
+      window.location.href = "/login";
     }
   };
 
   const navigateToLogin = () => {
-    // Use the SDK's redirectToLogin method
     base44.auth.redirectToLogin(window.location.href);
   };
 
-  return (
-    <AuthContext.Provider value={{ 
-      user, 
-      isAuthenticated, 
+  const value = useMemo(
+    () => ({
+      user,
+      isAuthenticated,
       isLoadingAuth,
-      isLoadingPublicSettings,
+      // kept for backwards compatibility with old UI
+      isLoadingPublicSettings: false,
       authError,
-      appPublicSettings,
+      appPublicSettings: null,
       logout,
       navigateToLogin,
-      checkAppState
-    }}>
-      {children}
-    </AuthContext.Provider>
+    }),
+    [user, isAuthenticated, isLoadingAuth, authError]
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
 export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("useAuth must be used within an AuthProvider");
+  return ctx;
 };

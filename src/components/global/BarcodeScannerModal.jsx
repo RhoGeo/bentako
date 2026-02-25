@@ -27,7 +27,6 @@ export default function BarcodeScannerModal({
   toastOnScan = true,
   onNotFound,
   onAddNew,
-  allowAddNew = true,
   onClose,
 }) {
   const [manualMode, setManualMode] = useState(false);
@@ -357,17 +356,12 @@ export default function BarcodeScannerModal({
                 <Button variant="outline" className="flex-1 h-12 touch-target" onClick={handleTryAgain}>
                   <RotateCcw className="w-4 h-4 mr-2" /> Try Again
                 </Button>
-                {onAddNew && allowAddNew && (
+                {onAddNew && (
                   <Button className="flex-1 h-12 bg-blue-600 hover:bg-blue-700 text-white touch-target" onClick={handleAddNew}>
                     <PackagePlus className="w-4 h-4 mr-2" /> Add New Item
                   </Button>
                 )}
               </div>
-              {onAddNew && !allowAddNew && (
-                <p className="mt-3 text-center text-xs text-stone-500">
-                  Ask the Owner/Manager to add this item.
-                </p>
-              )}
             </div>
           )}
         </div>

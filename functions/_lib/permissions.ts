@@ -13,7 +13,6 @@ export const ROLE_TEMPLATES: Record<string, Record<string, boolean>> = {
     permissions_manage: true,
     staff_manage: true,
     devices_manage: true,
-    store_archive: true,
     referral_apply_code: true,
   },
   manager: {
@@ -30,7 +29,6 @@ export const ROLE_TEMPLATES: Record<string, Record<string, boolean>> = {
     permissions_manage: false,
     staff_manage: false,
     devices_manage: false,
-    store_archive: false,
     referral_apply_code: false,
   },
   cashier: {
@@ -47,7 +45,6 @@ export const ROLE_TEMPLATES: Record<string, Record<string, boolean>> = {
     permissions_manage: false,
     staff_manage: false,
     devices_manage: false,
-    store_archive: false,
     referral_apply_code: false,
   },
 };

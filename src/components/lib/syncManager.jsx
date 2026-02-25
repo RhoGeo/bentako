@@ -49,6 +49,9 @@ export async function pushQueuedEvents(store_id) {
   const batch = queued.slice(0, MAX_BATCH);
   if (batch.length === 0) return { pushed: 0, results: [] };
 
+  // Mark pushing
+  await Promise.all(batch.map((e) => updateQueueEventStatus(e.event_id, { status: "pushing" })));
+
   let response;
   try {
     response = await base44.functions.invoke("pushSyncEvents", {
@@ -57,7 +60,7 @@ export async function pushQueuedEvents(store_id) {
       events: batch.map((e) => toEnvelopeForServer(e, store_id, device_id)),
     });
   } catch (err) {
-    // network/server error → mark retry (do NOT mark as pushing first to avoid stuck state)
+    // network/server error → mark retry
     const msg = err?.message || "push failed";
     // Permanent if client/auth error (4xx). We can't reliably inspect status, so fall back to message parsing.
     const isPermanent = /status code 4\d\d/i.test(msg) || /FORBIDDEN|UNAUTHORIZED|PIN_REQUIRED/i.test(msg);

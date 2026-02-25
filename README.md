@@ -1,72 +1,70 @@
-**Welcome to your Base44 project** 
+# Bentako POS (Supabase)
 
-**About**
+This repo was originally generated as a Base44 project. It has been updated to use **Supabase** for:
+- Auth (email/password)
+- Database reads/writes via PostgREST
+- Edge Functions via `supabase.functions.invoke(...)` (optional, for your offline sync + POS workflows)
 
-View and Edit  your app on [Base44.com](http://Base44.com) 
+## 1) Prerequisites
 
-This project contains everything you need to run your app locally.
+- Node.js 18+
+- A Supabase project already created (you said you already have this ✅)
 
-**Edit the code in your local development environment**
+## 2) Configure environment variables
 
-Any change pushed to the repo will also be reflected in the Base44 Builder.
+Create **`.env.local`** in the project root:
 
-**Prerequisites:** 
-
-1. Clone the repository using the project's Git URL 
-2. Navigate to the project directory
-3. Install dependencies: `npm install`
-4. Create an `.env.local` file and set the right environment variables
-
-```
-VITE_BASE44_APP_ID=your_app_id
-VITE_BASE44_APP_BASE_URL=your_backend_url
-
-e.g.
-VITE_BASE44_APP_ID=cbef744a8545c389ef439ea6
-VITE_BASE44_APP_BASE_URL=https://my-to-do-list-81bfaad7.base44.app
+```bash
+VITE_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+VITE_SUPABASE_ANON_KEY=YOUR_ANON_PUBLIC_KEY
 ```
 
-Run the app: `npm run dev`
+Get these from: **Supabase Dashboard → Project Settings → API**.
 
----
+## 3) Install + run
 
-## Base44 Data Model Requirements (for full feature set)
+```bash
+npm install
+npm run dev
+```
 
-This repo expects certain entities/fields to exist in your Base44 app schema.
+> Note: this repo intentionally does **not** include `package-lock.json` so you can regenerate a clean lock after removing Base44 deps.
 
-### 1) `StoreSettings.is_archived`
+## 4) Where to edit table mappings
 
-Used by **Archive Store** flow to hide a store from the store picker.
+The app still calls `base44.entities.<Entity>` in many places.
+To avoid rewriting everything, `src/api/base44Client.js` now provides a **Supabase-backed compatibility layer**.
 
-Add these fields to the `StoreSettings` entity:
+If your Supabase table names differ, edit this object:
 
-- `is_archived` (boolean, default: false)
-- `archived_at` (string/ISO datetime, nullable)
+- `src/api/base44Client.js` → `ENTITY_TABLE_MAP`
 
-### 2) `StaffInvite` entity (for Invite Staff flow)
+Example:
 
-Create a new entity/table named `StaffInvite` with at least:
+```js
+export const ENTITY_TABLE_MAP = {
+  Product: "products",
+  Customer: "customers",
+  // ...
+}
+```
 
-- `store_id` (string)
-- `invite_email` (string)
-- `role` (string: owner/manager/cashier)
-- `invite_token` (string, unique)
-- `status` (string: pending/accepted/revoked)
-- `invited_by_email` (string)
-- `expires_at` (string/ISO datetime)
-- `created_at` (string/ISO datetime)
-- `accepted_at` (string/ISO datetime, nullable)
-- `accepted_by_email` (string, nullable)
-- `revoked_at` (string/ISO datetime, nullable)
+## 5) Login
 
-If these are missing, the related functions will return `SCHEMA_MISSING`.
+A simple login page is available at:
 
-**Publish your changes**
+- `/login`
 
-Open [Base44.com](http://Base44.com) and click on Publish.
+It uses `supabase.auth.signInWithPassword` and `supabase.auth.signUp`.
 
-**Docs & Support**
+## 6) Edge Functions (optional)
 
-Documentation: [https://docs.base44.com/Integrations/Using-GitHub](https://docs.base44.com/Integrations/Using-GitHub)
+If your app uses offline sync, it will call these via `supabase.functions.invoke`:
 
-Support: [https://app.base44.com/support](https://app.base44.com/support)
+- `pushSyncEvents`
+- `pullSyncEvents`
+
+…and other POS helpers like `completeSale`, `barcodeLookup`, etc.
+
+If you already deployed equivalents in Supabase Edge Functions, keep the same names.
+Otherwise, you can temporarily disable auto-sync or stub the functions.

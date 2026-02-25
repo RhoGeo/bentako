@@ -32,15 +32,11 @@ import {
 import { generateClientTxId, generateEventId, getDeviceId, normalizeBarcode } from "@/components/lib/deviceId";
 import { syncNow } from "@/components/lib/syncManager";
 import { useActiveStoreId } from "@/components/lib/activeStore";
-import { useCurrentStaff } from "@/components/lib/useCurrentStaff";
-import { can } from "@/components/lib/permissions";
 
 export default function Counter() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { storeId: STORE_ID } = useActiveStoreId();
-  const { staffMember } = useCurrentStaff(STORE_ID);
-  const canCreateEdit = can(staffMember, "inventory_create_edit");
   const [searchValue, setSearchValue] = useState("");
   const [autoAddOnEnter, setAutoAddOnEnter] = useState(true);
   const [scannerOpen, setScannerOpen] = useState(false);
@@ -387,7 +383,6 @@ export default function Counter() {
         open={scannerOpen}
         mode="continuous"
         context="counter"
-        allowAddNew={canCreateEdit}
         onLookup={async (barcode) => {
           const product = await lookupBarcode(barcode);
           if (product) {
@@ -402,10 +397,6 @@ export default function Counter() {
           }
         }}
         onAddNew={(barcode) => {
-          if (!canCreateEdit) {
-            toast.error("No permission to add items.");
-            return;
-          }
           setScannerOpen(false);
           navigate(createPageUrl("ProductForm") + `?barcode=${barcode}`);
         }}

@@ -15,8 +15,6 @@ import { syncNow, startAutoSync } from "@/components/lib/syncManager";
 import { setActiveStoreId, useActiveStoreId, hasActiveStoreSelection } from "@/components/lib/activeStore";
 import { useStoresForUser } from "@/components/lib/useStores";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { useCurrentStaff } from "@/components/lib/useCurrentStaff";
-import { can } from "@/components/lib/permissions";
 
 const NAV_ITEMS = [
   { label: "Reports", icon: BarChart3, page: "Reports" },
@@ -38,15 +36,6 @@ export default function Layout({ children, currentPageName }) {
   const { storeId } = useActiveStoreId();
   const { stores, isLoading: storesLoading } = useStoresForUser();
   const { isUsingSafeDefaults, settings } = useStoreSettings(storeId);
-  const { staffMember } = useCurrentStaff(storeId);
-  const canReports = can(staffMember, "reports_access");
-
-  // Hide tabs that the current role cannot access to avoid dead-end navigation.
-  // (Pages still guard internally; this just hardens the UX.)
-  const navItems = NAV_ITEMS.filter((i) => {
-    if (i.page === "Reports") return canReports;
-    return true;
-  });
 
   const { data: queueCounts } = useQuery({
     queryKey: ["offline-queue-counts", storeId],
@@ -80,21 +69,8 @@ export default function Layout({ children, currentPageName }) {
 
   // Multi-store enforcement: if user has multiple stores and no explicit selection, force pick.
   useEffect(() => {
-    // Wait until the query is truly done (not just loading) before acting.
     if (storesLoading) return;
-
-    // No stores at all → send to onboarding (only after query settled and user is loaded)
-    if (!stores || stores.length === 0) {
-      const isOnboarding = window.location.pathname.includes("Onboarding");
-      if (!isOnboarding) {
-        // Small delay to avoid false redirects on slow auth load
-        const t = setTimeout(() => {
-          window.location.href = createPageUrl("Onboarding");
-        }, 500);
-        return () => clearTimeout(t);
-      }
-      return;
-    }
+    if (!stores || stores.length === 0) return;
 
     const allowed = new Set(stores.map((s) => s.store_id));
     const hasSelection = hasActiveStoreSelection();
@@ -160,25 +136,6 @@ export default function Layout({ children, currentPageName }) {
                 </button>
               ))
             )}
-            <div className="pt-2 space-y-2">
-              <Link
-                to={createPageUrl("MyStores")}
-                onClick={() => setStoreSwitcherOpen(false)}
-                className="block w-full text-center px-4 py-3 rounded-xl border bg-white text-stone-700 border-stone-200"
-              >
-                Manage Stores (Add / Leave)
-              </Link>
-              {staffMember?.role === "owner" && (
-                <Link
-                  to={createPageUrl("StoreAdmin")}
-                  onClick={() => setStoreSwitcherOpen(false)}
-                  className="block w-full text-center px-4 py-3 rounded-xl border bg-white text-stone-700 border-stone-200"
-                >
-                  Store Admin
-                </Link>
-              )}
-            </div>
-
           </div>
         </SheetContent>
       </Sheet>
@@ -231,7 +188,7 @@ export default function Layout({ children, currentPageName }) {
       {showTabs && (
         <nav className="sticky bottom-0 z-40 bg-white border-t border-stone-200 safe-bottom">
           <div className="flex items-stretch">
-            {navItems.map((item) => {
+            {NAV_ITEMS.map((item) => {
               const Icon = item.icon;
               const isActive = currentPageName === item.page;
               const isCounter = item.page === "Counter";

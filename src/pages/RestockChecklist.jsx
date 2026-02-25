@@ -12,10 +12,8 @@ import { Trash2, Package, ArrowLeft, PlusCircle } from "lucide-react";
 import { toast } from "sonner";
 
 import OwnerPinModal from "@/components/global/OwnerPinModal";
-import PermissionGate from "@/components/global/PermissionGate";
 import { useActiveStoreId } from "@/components/lib/activeStore";
 import { useStoreSettings } from "@/components/lib/useStoreSettings";
-import { useCurrentStaff } from "@/components/lib/useCurrentStaff";
 import { enqueueOfflineEvent, patchCachedProductSnapshot, upsertCachedProducts, getAllCachedProducts } from "@/components/lib/db";
 import { generateEventId, getDeviceId } from "@/components/lib/deviceId";
 import { getEffectiveThresholds, getInventoryTag, getStockQty, normalizeForMatch } from "@/components/inventory/inventoryRules";
@@ -36,7 +34,6 @@ export default function RestockChecklist() {
   const navigate = useNavigate();
   const { storeId } = useActiveStoreId();
   const { settings } = useStoreSettings(storeId);
-  const { staffMember, isLoading: staffLoading } = useCurrentStaff(storeId);
 
   const params = new URLSearchParams(window.location.search);
   const mode = params.get("mode"); // critical | low_critical | all_stocked
@@ -239,13 +236,8 @@ export default function RestockChecklist() {
     await queueSelected(pinProof);
   };
 
-  if (staffLoading) {
-    return <div className="p-8 text-center text-stone-400 text-sm">Loading…</div>;
-  }
-
   return (
-    <PermissionGate staffMember={staffMember} permission="inventory_adjust_stock" block>
-      <div className="pb-28">
+    <div className="pb-28">
       <div className="sticky top-0 bg-white/95 backdrop-blur-sm border-b border-stone-100 px-4 py-3 flex items-center gap-3 z-20">
         <button onClick={() => navigate(-1)} className="touch-target"><ArrowLeft className="w-5 h-5 text-stone-600" /></button>
         <h1 className="text-lg font-bold text-stone-800">Restock Checklists</h1>
@@ -437,7 +429,6 @@ export default function RestockChecklist() {
           queueSelected(owner_pin_proof || null);
         }}
       />
-      </div>
-    </PermissionGate>
+    </div>
   );
 }

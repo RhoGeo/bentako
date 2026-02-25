@@ -1,9 +1,6 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
-import { useActiveStoreId } from "@/components/lib/activeStore";
-import { useCurrentStaff } from "@/components/lib/useCurrentStaff";
-import { can } from "@/components/lib/permissions";
 import {
   Users,
   RefreshCw,
@@ -16,34 +13,10 @@ import {
   LogOut,
   BookOpen,
   ShieldCheck,
-  Store,
-  Layers,
-  Receipt,
 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 
 const menuItems = [
-  {
-    label: "My Stores",
-    icon: Store,
-    page: "MyStores",
-    color: "text-blue-600",
-    bgColor: "bg-blue-50",
-  },
-  {
-    label: "Store Admin",
-    icon: Layers,
-    page: "StoreAdmin",
-    color: "text-indigo-600",
-    bgColor: "bg-indigo-50",
-  },
-  {
-    label: "Sales Log (Void/Refund)",
-    icon: Receipt,
-    page: "SalesLog",
-    color: "text-stone-600",
-    bgColor: "bg-stone-100",
-  },
   {
     label: "Operating Policy",
     icon: BookOpen,
@@ -110,40 +83,18 @@ const menuItems = [
 ];
 
 export default function More() {
-  const { storeId } = useActiveStoreId();
-  const { staffMember } = useCurrentStaff(storeId);
-
-  const filteredItems = menuItems.filter((item) => {
-    if (item.page === "StoreAdmin") return staffMember?.role === "owner";
-    if (item.page === "Permissions") return can(staffMember, "permissions_manage");
-    if (item.page === "Staff") return can(staffMember, "staff_manage");
-    if (item.page === "Devices") return can(staffMember, "devices_manage");
-    if (item.page === "StoreSettings") return staffMember?.role === "owner";
-    if (item.page === "Payouts") return can(staffMember, "payouts_view");
-    if (item.page === "Affiliate") return can(staffMember, "affiliate_invite") || can(staffMember, "referral_apply_code");
-    if (item.page === "CustomersDue") return can(staffMember, "customers_view");
-    if (item.page === "SalesLog") {
-      return (
-        can(staffMember, "reports_drilldowns") ||
-        can(staffMember, "transaction_void") ||
-        can(staffMember, "transaction_refund")
-      );
-    }
-    return true;
-  });
-
   return (
     <div className="px-4 py-5 pb-24">
       <h1 className="text-xl font-bold text-stone-800 mb-5">More</h1>
 
       <div className="bg-white rounded-2xl border border-stone-100 shadow-sm overflow-hidden">
-        {filteredItems.map((item, index) => {
+        {menuItems.map((item, index) => {
           const Icon = item.icon;
           return (
             <Link key={item.label} to={createPageUrl(item.page)}>
               <div
                 className={`flex items-center gap-3 px-4 py-3.5 active:bg-stone-50 transition-colors ${
-                  index < filteredItems.length - 1 ? "border-b border-stone-50" : ""
+                  index < menuItems.length - 1 ? "border-b border-stone-50" : ""
                 }`}
               >
                 <div className={`w-9 h-9 rounded-lg ${item.bgColor} flex items-center justify-center flex-shrink-0`}>

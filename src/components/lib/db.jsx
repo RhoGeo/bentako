@@ -221,8 +221,7 @@ export async function getQueuedEvents(store_id) {
   const rows = await db.offline_queue
     .where("[store_id+created_at_device]")
     .between([store_id, Dexie.minKey], [store_id, Dexie.maxKey])
-    // Also pick up "pushing" events that got stuck (e.g. app crashed mid-push)
-    .filter((e) => e.status === "queued" || e.status === "failed_retry" || e.status === "pushing")
+    .filter((e) => e.status === "queued" || e.status === "failed_retry")
     .toArray();
   rows.sort((a, b) => (a.created_at_device || 0) - (b.created_at_device || 0));
   return rows;

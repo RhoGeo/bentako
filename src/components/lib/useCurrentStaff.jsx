@@ -12,12 +12,31 @@ export function useCurrentStaff(storeId = getActiveStoreId()) {
   const { data: staffMember, isLoading } = useQuery({
     queryKey: ["staff-member", user?.email, storeId],
     queryFn: async () => {
-      if (!user?.email) return null;
-      const results = await base44.entities.StaffMember.filter({
-        store_id: storeId,
-        user_email: user.email,
-        is_active: true,
-      });
+      if (!user?.email && !user?.id) return null;
+
+      // Prefer UUID-based linkage (recommended for Supabase Auth)
+      let results = [];
+      if (user?.id) {
+        try {
+          results = await base44.entities.StaffMember.filter({
+            store_id: storeId,
+            user_id: user.id,
+            is_active: true,
+          });
+        } catch (_e) {
+          results = [];
+        }
+      }
+
+      // Fallback: email-based linkage (older/Base44-style)
+      if (results.length === 0 && user?.email) {
+        results = await base44.entities.StaffMember.filter({
+          store_id: storeId,
+          user_email: user.email,
+          is_active: true,
+        });
+      }
+
       if (results.length === 0 && user.role === "admin") {
         return { role: "owner", overrides_json: {}, store_id: storeId, user_email: user.email, user_name: user.full_name };
       }
