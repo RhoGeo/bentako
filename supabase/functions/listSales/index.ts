@@ -32,7 +32,9 @@ Deno.serve(async (req) => {
 
     let q = supabase
       .from("sales")
-      .select("sale_id,store_id,client_tx_id,receipt_number,status,total_centavos,created_by,created_at,completed_at")
+      .select(
+        "sale_id,store_id,client_tx_id,receipt_number,status,total_centavos,created_by,created_at,completed_at,voided_at,refunded_at,customer_id",
+      )
       .eq("store_id", store_id)
       .is("deleted_at", null)
       .neq("status", "parked")
@@ -50,6 +52,27 @@ Deno.serve(async (req) => {
     const { data: sales, error } = await q;
     if (error) throw new Error(error.message);
 
+    const saleIds = (sales || []).map((s: any) => s.sale_id).filter(Boolean);
+
+    // Payment summaries (avoid N+1): net paid is capped at total; refundable subtracts refunds already recorded.
+    let paidBySale: Record<string, number> = {};
+    let refundedBySale: Record<string, number> = {};
+    if (saleIds.length) {
+      const { data: pays, error: perr } = await supabase
+        .from("payment_ledger")
+        .select("sale_id,amount_centavos,is_refund")
+        .eq("store_id", store_id)
+        .in("sale_id", saleIds);
+      if (perr) throw new Error(perr.message);
+      for (const p of pays || []) {
+        const sid = String((p as any).sale_id);
+        const amt = Number((p as any).amount_centavos || 0);
+        if (!Number.isFinite(amt) || amt <= 0) continue;
+        if ((p as any).is_refund) refundedBySale[sid] = (refundedBySale[sid] || 0) + amt;
+        else paidBySale[sid] = (paidBySale[sid] || 0) + amt;
+      }
+    }
+
     const userIds = Array.from(new Set((sales || []).map((s: any) => s.created_by).filter(Boolean)));
     let usersById: Record<string, any> = {};
     if (userIds.length) {
@@ -61,10 +84,21 @@ Deno.serve(async (req) => {
       for (const u of users || []) usersById[String(u.user_id)] = u;
     }
 
-    const out = (sales || []).map((s: any) => ({
-      ...s,
-      cashier_email: usersById[String(s.created_by)]?.email || null,
-    }));
+    const out = (sales || []).map((s: any) => {
+      const sid = String(s.sale_id);
+      const total = Number(s.total_centavos || 0);
+      const paidRaw = Number(paidBySale[sid] || 0);
+      const refundedRaw = Number(refundedBySale[sid] || 0);
+      const paidNet = Math.max(0, Math.min(total, paidRaw));
+      const refundable = Math.max(0, paidNet - refundedRaw);
+      return {
+        ...s,
+        cashier_email: usersById[String(s.created_by)]?.email || null,
+        amount_paid_centavos: paidNet,
+        refunded_centavos: refundedRaw,
+        refundable_centavos: refundable,
+      };
+    });
 
     return jsonOk({ sales: out });
   } catch (err) {
