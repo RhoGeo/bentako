@@ -12,15 +12,50 @@ supabase secrets set SUPABASE_SERVICE_ROLE_KEY="<service_role_key>"
 ## 2) Deploy
 
 ```bash
+# Auth + onboarding
 supabase functions deploy authSignUp
 supabase functions deploy authSignIn
 supabase functions deploy authMe
 supabase functions deploy authSignOut
 supabase functions deploy createFirstStore
+
+# Catalog (Items/ProductForm)
+supabase functions deploy listProducts
+supabase functions deploy getProduct
+supabase functions deploy listProductVariants
+supabase functions deploy upsertProduct
+supabase functions deploy deleteProduct
 supabase functions deploy barcodeLookup
+
+# Customers (Utang)
+supabase functions deploy createCustomer
 supabase functions deploy pushSyncEvents
 supabase functions deploy pullSyncEvents
 supabase functions deploy getCustomerLedger
+
+# Reports / History
+supabase functions deploy listSales
+supabase functions deploy getInventoryMetrics
+supabase functions deploy listStockLedger
+supabase functions deploy acknowledgePolicy
+
+# Store + Staff management (optional but recommended)
+supabase functions deploy listMyStores
+supabase functions deploy createStore
+supabase functions deploy archiveStore
+supabase functions deploy unarchiveStore
+supabase functions deploy deleteStore
+supabase functions deploy updateStoreSettings
+supabase functions deploy setOwnerPin
+supabase functions deploy updateStorePermissions
+supabase functions deploy listStoreMembers
+supabase functions deploy addStaffByEmail
+supabase functions deploy updateStoreMember
+supabase functions deploy assignStaffToStores
+supabase functions deploy inviteStaff
+supabase functions deploy listStaffInvites
+supabase functions deploy revokeStaffInvite
+supabase functions deploy acceptStaffInvite
 ```
 
 ## 2.1) Required DB migration

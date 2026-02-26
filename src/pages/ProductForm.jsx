@@ -18,7 +18,7 @@ import { toast } from "sonner";
 import { ArrowLeft, ScanLine, Trash2, Plus, Save } from "lucide-react";
 import BarcodeScannerModal from "@/components/global/BarcodeScannerModal";
 import { normalizeBarcode } from "@/lib/ids/deviceId";
-import { getCachedProductByBarcode, upsertCachedProducts } from "@/lib/db";
+import { getCachedProductByBarcode, upsertCachedProducts, deleteCachedProductsByIds } from "@/lib/db";
 import { useActiveStoreId } from "@/components/lib/activeStore";
 import { useCurrentStaff } from "@/components/lib/useCurrentStaff";
 import { auditLog } from "@/components/lib/auditLog";
@@ -306,6 +306,44 @@ export default function ProductForm() {
     }
   };
 
+  const handleDelete = async () => {
+    if (!resolvedEditId) return;
+    const ok = window.confirm(
+      isParent
+        ? "Delete this parent and all its variants? (They will be removed from Items and barcode scan.)"
+        : "Delete this item? (It will be removed from Items and barcode scan.)"
+    );
+    if (!ok) return;
+
+    setSaving(true);
+    try {
+      const res = await invokeFunction("deleteProduct", {
+        store_id: storeId,
+        product_id: resolvedEditId,
+        note: "Deleted from ProductForm",
+      });
+      const deleted = res?.data?.result?.deleted_ids || [];
+      if (deleted.length) {
+        await deleteCachedProductsByIds(storeId, deleted);
+      }
+
+      await auditLog("product_deleted", "Product deleted", {
+        actor_email: user?.email,
+        reference_id: resolvedEditId,
+        metadata: { store_id: storeId, product_type: form.product_type, deleted_ids: deleted },
+      });
+
+      queryClient.invalidateQueries({ queryKey: ["cached-products", storeId] });
+      queryClient.invalidateQueries({ queryKey: ["products-all", storeId] });
+      toast.success("Product deleted");
+      navigate(createPageUrl("Items"));
+    } catch (e) {
+      toast.error(e?.message || "Failed to delete");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleScanResult = (barcode) => {
     if (scanTarget === "main") {
       updateField("barcode", barcode);
@@ -348,6 +386,17 @@ export default function ProductForm() {
         <h1 className="text-lg font-bold text-stone-800 flex-1">
           {isEdit ? "Edit Product" : "New Product"}
         </h1>
+
+        {isEdit && (
+          <Button
+            onClick={handleDelete}
+            disabled={saving}
+            variant="outline"
+            className="h-9 px-3 border-red-200 text-red-700 hover:bg-red-50"
+          >
+            <Trash2 className="w-4 h-4" />
+          </Button>
+        )}
         <Button
           onClick={handleSave}
           disabled={saving}

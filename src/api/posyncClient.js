@@ -17,17 +17,34 @@ export async function invokeFunction(functionName, payload = {}) {
   const { url, anon } = assertSupabaseConfigured();
   const access = getAccessToken();
 
-  const res = await fetch(`${url}/functions/v1/${functionName}`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      apikey: anon,
-      // Use anon key for function gateway auth; our custom session token is passed separately.
-      authorization: `Bearer ${anon}`,
-      ...(access ? { "x-posync-access-token": access } : {}),
-    },
-    body: JSON.stringify(payload ?? {}),
-  });
+  const endpoint = `${url}/functions/v1/${functionName}`;
+  let res;
+  try {
+    res = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        apikey: anon,
+        // Use anon key for function gateway auth; our custom session token is passed separately.
+        authorization: `Bearer ${anon}`,
+        ...(access ? { "x-posync-access-token": access } : {}),
+      },
+      body: JSON.stringify(payload ?? {}),
+    });
+  } catch (e) {
+    const isHttpsPage = typeof window !== "undefined" && window.location?.protocol === "https:";
+    const isHttpSupabase = String(url || "").startsWith("http://");
+    const hint = isHttpsPage && isHttpSupabase
+      ? "(Mixed content: your app is HTTPS but VITE_SUPABASE_URL is HTTP)"
+      : "(Network/CORS error)";
+    const err = new Error(
+      `Failed to reach Supabase Edge Function '${functionName}'. ${hint}\n` +
+        `URL: ${endpoint}\n` +
+        `Fix: confirm VITE_SUPABASE_URL/VITE_SUPABASE_ANON_KEY match your Supabase project, and that the function '${functionName}' is deployed.`
+    );
+    err.cause = e;
+    throw err;
+  }
 
   const text = await res.text();
   let json;
