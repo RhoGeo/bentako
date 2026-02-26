@@ -15,6 +15,7 @@ import { syncNow, startAutoSync } from "@/components/lib/syncManager";
 import { setActiveStoreId, useActiveStoreId, hasActiveStoreSelection } from "@/components/lib/activeStore";
 import { useStoresForUser } from "@/components/lib/useStores";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { useOfflineSync } from "@/hooks/useOfflineSync";
 
 const NAV_ITEMS = [
   { label: "Reports", icon: BarChart3, page: "Reports" },
@@ -34,6 +35,7 @@ export default function Layout({ children, currentPageName }) {
   const [storeSwitcherOpen, setStoreSwitcherOpen] = useState(false);
   const showTabs = TAB_PAGES.includes(currentPageName);
   const { storeId } = useActiveStoreId();
+  const salesSync = useOfflineSync({ storeId });
   const { stores, isLoading: storesLoading } = useStoresForUser();
   const storeIdOf = (s) => s?.id || s?.store_id;
   const { isUsingSafeDefaults, settings } = useStoreSettings(storeId);
@@ -47,9 +49,15 @@ export default function Layout({ children, currentPageName }) {
 
   const queuedCount = queueCounts?.queued || 0;
   const failedPermanentCount = queueCounts?.failed_permanent || 0;
+  const pendingSalesCount = salesSync?.pendingCount || 0;
+  const failedSalesCount = salesSync?.failedCount || 0;
+
+  const combinedQueuedCount = queuedCount + pendingSalesCount;
+  const combinedFailedCount = failedPermanentCount + failedSalesCount;
+
   const stopTheLineReasons =
-    failedPermanentCount > 0
-      ? [`${failedPermanentCount} event(s) failed permanently — kailangan ayusin.`]
+    combinedFailedCount > 0
+      ? [`${combinedFailedCount} issue(s) need attention — tap Sync for details.`]
       : [];
 
   useEffect(() => {
@@ -101,7 +109,11 @@ export default function Layout({ children, currentPageName }) {
     if (!navigator.onLine) return;
     setIsSyncing(true);
     try {
-      await syncNow(storeId);
+      // Run both sync systems (events + offline-first sales)
+      await Promise.allSettled([
+        syncNow(storeId),
+        salesSync?.syncSales?.(),
+      ]);
     } finally {
       setIsSyncing(false);
     }
@@ -169,16 +181,19 @@ export default function Layout({ children, currentPageName }) {
               </div>
             </div>
             <ConnectionBadge
-              status={isOnline ? "online" : "offline"}
+              status={(salesSync?.isSyncing || isSyncing) ? "syncing" : (isOnline ? "online" : "offline")}
+              queuedCount={combinedQueuedCount}
+              failedCount={combinedFailedCount}
               onTap={() => setSyncDrawerOpen(true)}
             />
+            <div className="text-[10px] text-stone-600 ml-2">{salesSync?.statusText}</div>
           </div>
           <StopTheLineBanner reasons={stopTheLineReasons} />
           <SafeDefaultsBanner show={isUsingSafeDefaults} />
           <SyncBanner
-            queuedCount={queuedCount}
-            failedCount={failedPermanentCount}
-            isSyncing={isSyncing}
+            queuedCount={combinedQueuedCount}
+            failedCount={combinedFailedCount}
+            isSyncing={isSyncing || salesSync?.isSyncing}
             onSyncNow={handleSyncNow}
             onViewDetails={() => setSyncDrawerOpen(true)}
           />

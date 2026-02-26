@@ -25,4 +25,20 @@ db.version(1).stores({
   local_receipts: "[store_id+client_tx_id]",
 });
 
+
+db.version(2).stores({
+  cached_products:
+    "[store_id+product_id],[store_id+barcode],[store_id+name],updated_at",
+  cached_customers: "[store_id+customer_id],[store_id+name],updated_at",
+  cached_categories: "[store_id+category_id],updated_at",
+  offline_queue:
+    "event_id,[store_id+status],[store_id+created_at_device],client_tx_id",
+  local_meta: "[store_id+device_id]",
+  local_receipts: "[store_id+client_tx_id]",
+  // Offline-first sales queue (bulk sync)
+  pendingSales: "sale_uuid,[store_id+status],[store_id+timestamp],status,timestamp",
+});
+
+
+
 export { Dexie };

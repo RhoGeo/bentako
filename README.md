@@ -37,3 +37,11 @@ Open [Base44.com](http://Base44.com) and click on Publish.
 Documentation: [https://docs.base44.com/Integrations/Using-GitHub](https://docs.base44.com/Integrations/Using-GitHub)
 
 Support: [https://app.base44.com/support](https://app.base44.com/support)
+
+
+## Offline-first Sales (New Flow)
+
+- Checkout writes to Dexie `pendingSales` first (instant UX).
+- Background sync uploads pending sales to Vercel API route `POST /api/sales/bulk-sync`.
+- Configure Vercel env vars: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`.
+

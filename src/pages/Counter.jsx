@@ -28,10 +28,10 @@ import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import {
   getCachedProductByBarcode,
-  enqueueOfflineEvent,
   upsertLocalReceipt,
   getAllCachedProducts,
   getAllCachedCustomers,
+  savePendingSale,
 } from "@/lib/db";
 import {
   generateClientTxId,
@@ -39,7 +39,6 @@ import {
   getDeviceId,
   normalizeBarcode,
 } from "@/lib/ids/deviceId";
-import { syncNow } from "@/components/lib/syncManager";
 import { useActiveStoreId } from "@/components/lib/activeStore";
 import { useStoreSettings } from "@/components/lib/useStoreSettings";
 import { useCurrentStaff } from "@/components/lib/useCurrentStaff";
@@ -295,102 +294,91 @@ export default function Counter() {
 
   const handlePark = async () => {
     if (cart.length === 0) return;
-    const client_tx_id = generateClientTxId();
-    const event_id = generateEventId();
+
+    // Offline-first: park sale locally (sync later)
+    const sale_uuid = (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : generateClientTxId();
     const device_id = getDeviceId();
 
-    const payload = {
-      store_id: STORE_ID,
-      client_tx_id,
-      device_id,
-      sale: {
-        sale_type: "counter",
-        status: "parked",
-        items: cart.map((i) => ({
-          product_id: i.product_id,
-          parent_id: i.parent_id || null,
-          variant_id: i.variant_id || null,
-          display_name: i.display_name || i.product_name || "",
-          qty: i.qty,
-          unit_price_centavos: i.unit_price_centavos,
-          line_discount_centavos: 0,
-        })),
-        discount_centavos: 0,
-        payments: [],
-        customer_id: null,
-        notes: "",
-      },
+    const sale = {
+      sale_type: "counter",
+      status: "parked",
+      items: cart.map((i) => ({
+        product_id: i.product_id,
+        parent_id: i.parent_id || null,
+        variant_id: i.variant_id || null,
+        display_name: i.display_name || i.product_name || "",
+        qty: i.qty,
+        unit_price_centavos: i.unit_price_centavos,
+        line_discount_centavos: 0,
+      })),
+      discount_centavos: 0,
+      payments: [],
+      customer_id: null,
+      notes: "",
     };
 
-    await enqueueOfflineEvent({
+    await savePendingSale({
       store_id: STORE_ID,
-      event_id,
+      sale_uuid,
       device_id,
-      client_tx_id,
-      event_type: "parkSale",
-      payload,
-      created_at_device: Date.now(),
+      cartItems: sale.items,
+      totalAmount: totalCentavos,
+      timestamp: Date.now(),
+      status: "pending",
+      sale,
     });
 
-    toast.success("Sale parked. Di pa nabawas ang stock.");
+    toast.success("Sale parked (offline-first).", { duration: 1600 });
     setCart([]);
   };
 
   const handlePaymentConfirm = async (payload) => {
-    const client_tx_id = generateClientTxId();
-    const event_id = generateEventId();
+    // Offline-first: always save locally first (never block checkout)
+    const sale_uuid = (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : generateClientTxId();
     const device_id = getDeviceId();
-    const isOnline = navigator.onLine;
     const payments = Array.isArray(payload?.payments) ? payload.payments : [];
 
-    const completeSalePayload = {
-      store_id: STORE_ID,
-      client_tx_id,
-      device_id,
-      sale: {
-        sale_type: "counter",
-        status: payload.status,
-        items: cart.map((i) => ({
-          product_id: i.product_id,
-          parent_id: i.parent_id || null,
-          variant_id: i.variant_id || null,
-          display_name: i.display_name || i.product_name || "",
-          qty: i.qty,
-          unit_price_centavos: i.unit_price_centavos,
-          line_discount_centavos: 0,
-        })),
-        discount_centavos: 0,
-        payments,
-        customer_id: payload.customer_id || null,
-        notes: payload.notes || "",
-      },
+    const sale = {
+      sale_type: "counter",
+      status: payload.status,
+      items: cart.map((i) => ({
+        product_id: i.product_id,
+        parent_id: i.parent_id || null,
+        variant_id: i.variant_id || null,
+        display_name: i.display_name || i.product_name || "",
+        qty: i.qty,
+        unit_price_centavos: i.unit_price_centavos,
+        line_discount_centavos: 0,
+      })),
+      discount_centavos: 0,
+      payments,
+      customer_id: payload.customer_id || null,
+      notes: payload.notes || "",
     };
 
-    await enqueueOfflineEvent({
+    // Save to Dexie pendingSales
+    await savePendingSale({
       store_id: STORE_ID,
-      event_id,
+      sale_uuid,
       device_id,
-      client_tx_id,
-      event_type: "completeSale",
-      payload: completeSalePayload,
-      created_at_device: Date.now(),
+      cartItems: sale.items,
+      totalAmount: totalCentavos,
+      timestamp: Date.now(),
+      status: "pending",
+      sale,
     });
 
+    // Local receipt stub for UI (uses client_tx_id)
     await upsertLocalReceipt({
-      client_tx_id,
+      client_tx_id: sale_uuid,
       store_id: STORE_ID,
       local_status: "queued",
     });
 
-    if (isOnline) {
-      syncNow(STORE_ID)
-        .then(() => queryClient.invalidateQueries({ queryKey: ["products", STORE_ID] }))
-        .catch(() => {});
-      toast.success("Sale queued & syncing…");
-    } else {
-      toast.info("Queued — magsi-sync pag online.", { duration: 3000 });
-    }
+    toast.success("Sale recorded (offline-first).", { duration: 1600 });
 
+    // Do NOT block UI. Background sync will run when online.
+    // If online now, the global sync hook will pick this up immediately.
     setCart([]);
     setPaymentOpen(false);
   };

@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { useCurrentStaff } from "@/components/lib/useCurrentStaff";
-import { listOfflineQueue, updateQueueEventStatus } from "@/lib/db";
+import { listOfflineQueue, updateQueueEventStatus, listSalesByStatus, markSalesStatus, deletePendingSales } from "@/lib/db";
 import { syncNow } from "@/components/lib/syncManager";
+import { useOfflineSync } from "@/hooks/useOfflineSync";
 import { useActiveStoreId } from "@/components/lib/activeStore";
 
 const STATUS_CONFIGS = {
@@ -23,6 +24,7 @@ export default function SyncStatus() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { storeId } = useActiveStoreId();
+  const salesSync = useOfflineSync({ storeId });
   const { user } = useCurrentStaff(storeId);
   const [isSyncing, setIsSyncing] = React.useState(false);
 
@@ -32,6 +34,20 @@ export default function SyncStatus() {
     refetchInterval: 3_000,
     initialData: [],
   });
+  const { data: pendingSales = [] } = useQuery({
+    queryKey: ["pending-sales", storeId],
+    queryFn: () => listSalesByStatus(storeId, "pending"),
+    refetchInterval: 3_000,
+    initialData: [],
+  });
+
+  const { data: failedSales = [] } = useQuery({
+    queryKey: ["failed-sales", storeId],
+    queryFn: () => listSalesByStatus(storeId, "failed"),
+    refetchInterval: 3_000,
+    initialData: [],
+  });
+
 
   const queued = events.filter((e) => e.status === "queued");
   const pushing = events.filter((e) => e.status === "pushing");
@@ -151,7 +167,76 @@ export default function SyncStatus() {
               ) : [...queued, ...pushing].map(ev => <EventRow key={ev.event_id} ev={ev} />)}
             </div>
           </TabsContent>
-          <TabsContent value="failed">
+          
+        <TabsContent value="sales" className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-stone-600">
+              Pending Sales: {pendingSales.length} {failedSales.length > 0 ? `(Failed: ${failedSales.length})` : ""}
+            </p>
+            <Button size="sm" variant="default" className="h-8 text-xs" onClick={() => salesSync.syncSales()}>
+              <RefreshCw className={`w-3 h-3 mr-1 ${salesSync.isSyncing ? "animate-spin" : ""}`} />
+              Sync Sales
+            </Button>
+          </div>
+
+          {(pendingSales.length === 0 && failedSales.length === 0) ? (
+            <div className="text-sm text-stone-500 py-6 text-center">No pending sales.</div>
+          ) : (
+            <div className="space-y-2">
+              {pendingSales.map((s) => (
+                <div key={s.sale_uuid} className="p-3 rounded-lg border bg-white">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium text-sm truncate">Sale</p>
+                      <p className="text-[11px] text-stone-600 break-all">{s.sale_uuid}</p>
+                      <p className="text-[11px] text-stone-500">{new Date(s.timestamp).toLocaleString()}</p>
+                    </div>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">Pending</span>
+                  </div>
+                </div>
+              ))}
+
+              {failedSales.map((s) => (
+                <div key={s.sale_uuid} className="p-3 rounded-lg border bg-white">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium text-sm truncate">Sale</p>
+                      <p className="text-[11px] text-stone-600 break-all">{s.sale_uuid}</p>
+                      <p className="text-[11px] text-red-600">{s.last_error || "Failed"}</p>
+                      <p className="text-[11px] text-stone-500">{new Date(s.timestamp).toLocaleString()}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-xs"
+                        onClick={async () => {
+                          await markSalesStatus(storeId, [s.sale_uuid], "pending", { errorMessage: null });
+                          toast.success("Marked for retry.");
+                        }}
+                      >
+                        Retry
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        className="h-8 text-xs"
+                        onClick={async () => {
+                          await deletePendingSales([s.sale_uuid]);
+                          toast.success("Discarded.");
+                        }}
+                      >
+                        Discard
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+
+<TabsContent value="failed">
             <div className="bg-white rounded-xl border border-stone-100 mt-2">
               {[...failedRetry, ...failedPermanent].length === 0 ? (
                 <div className="text-center py-8 text-stone-400 text-sm">No failed events.</div>
