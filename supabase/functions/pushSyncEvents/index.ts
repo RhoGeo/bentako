@@ -84,6 +84,8 @@ async function applyCompleteSale(supabase: any, store_id: string, user_id: strin
   const client_tx_id = assertString(payload?.client_tx_id, "client_tx_id");
   const sale = payload?.sale;
   if (!sale) throw new Error("sale required");
+  if (typeof sale !== "object" || Array.isArray(sale)) {
+    throw new Error("sale must be an object");
 
   const { data, error } = await supabase.rpc("posync_apply_sale", {
     p_store_id: store_id,

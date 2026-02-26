@@ -295,7 +295,16 @@ export default function Counter() {
     setCart([]);
     setPaymentOpen(false);
   };
-
+  const addToCart = useCallback((product) => {
+  +  if (product?.product_type === "parent") {
+  +    toast.error("Parent products are not sellable. Piliin ang variant/item.", { duration: 2000 });
+  +    return;
+  +  }
+    setCart((prev) => {
+      ...
+    });
+    toast.success(`Added: ${product.name} (+1)`, { duration: 1200 });
+  }, []);
   const sellable = products.filter((p) => p?.product_type !== "parent" && p?.is_active !== false);
   const totalSellable = sellable.length;
   const trackedCount = sellable.filter((p) => !!p.track_stock).length;
