@@ -132,12 +132,12 @@ async function applyCompleteSale(supabase: any, store_id: string, user_id: strin
   const sale = normalizeSaleForRpc(payload?.sale);
   if (!sale) throw new Error("sale required");
 
-  const { data, error } = await supabase.rpc("posync_apply_sale", {
+  const { data, error } = await supabase.rpc("posync_apply_sale_text", {
     p_store_id: store_id,
     p_user_id: user_id,
     p_device_id: device_id,
     p_client_tx_id: client_tx_id,
-    p_sale: sale,
+    p_sale_text: JSON.stringify(sale),
   });
   if (error) {
     const details = (error as any)?.details ? ` | ${(error as any).details}` : "";
@@ -153,12 +153,12 @@ async function applyParkSale(supabase: any, store_id: string, user_id: string, d
   if (!sale) throw new Error("sale required");
   const parkSale = { ...sale, status: "parked" };
 
-  const { data, error } = await supabase.rpc("posync_apply_sale", {
+  const { data, error } = await supabase.rpc("posync_apply_sale_text", {
     p_store_id: store_id,
     p_user_id: user_id,
     p_device_id: device_id,
     p_client_tx_id: client_tx_id,
-    p_sale: parkSale,
+    p_sale_text: JSON.stringify(parkSale),
   });
   if (error) {
     const details = (error as any)?.details ? ` | ${(error as any).details}` : "";
