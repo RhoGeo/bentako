@@ -9,7 +9,7 @@ function assertSupabaseConfigured() {
   const url = trimSlash(appParams?.supabaseUrl);
   const anon = appParams?.supabaseAnonKey;
   if (!url) throw new Error("Missing VITE_SUPABASE_URL");
-  if (!anon) throw new Error("Missing VITE_SUPABASE_ANON_KEY");
+  if (!anon) throw new Error("Missing VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY or VITE_SUPABASE_ANON_KEY");
   return { url, anon };
 }
 
@@ -40,7 +40,7 @@ export async function invokeFunction(functionName, payload = {}) {
     const err = new Error(
       `Failed to reach Supabase Edge Function '${functionName}'. ${hint}\n` +
         `URL: ${endpoint}\n` +
-        `Fix: confirm VITE_SUPABASE_URL/VITE_SUPABASE_ANON_KEY match your Supabase project, and that the function '${functionName}' is deployed.`
+        `Fix: confirm VITE_SUPABASE_URL and your public key (VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY or VITE_SUPABASE_ANON_KEY) match your Supabase project, and that the function '${functionName}' is deployed.`
     );
     err.cause = e;
     throw err;

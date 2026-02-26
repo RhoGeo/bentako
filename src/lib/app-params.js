@@ -5,11 +5,18 @@ const isNode = typeof window === 'undefined';
  *
  * Configure via Vite env:
  * - VITE_SUPABASE_URL = https://<project-ref>.supabase.co
- * - VITE_SUPABASE_ANON_KEY = <anon key>
+ *
+ * For client-side calls (Edge Functions gateway):
+ * - Prefer the new publishable key: VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY=sb_publishable_...
+ * - Fallback to legacy anon JWT: VITE_SUPABASE_ANON_KEY=eyJ...
  */
 export const appParams = {
   supabaseUrl: import.meta.env.VITE_SUPABASE_URL || null,
-  supabaseAnonKey: import.meta.env.VITE_SUPABASE_ANON_KEY || null,
+  // Prefer the new publishable key if present; fallback to legacy anon key.
+  supabaseAnonKey:
+    import.meta.env.VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY ||
+    import.meta.env.VITE_SUPABASE_ANON_KEY ||
+    null,
 };
 
 // Clean up legacy Base44 keys (if the app was previously built with Base44)
