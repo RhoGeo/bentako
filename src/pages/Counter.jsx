@@ -1,13 +1,18 @@
 /**
  * Counter — Primary sale screen.
  *
- * Offline contract:
- *   - All sales → enqueueOfflineEvent (Dexie offline_queue) + create local_receipt
- *   - Online: also writes directly to base44 entities (optimistic) then sync confirms
- *   - barcode lookup: Dexie cache first, then server fallback (if online)
- *   - Parked sales: NO stock deduction (enforced here + server)
+ * Parent/Variant UX:
+ * - Standalone item (no variants): title = item.name
+ * - Variant item: title = parent_name, subtitle = variant_name
+ * - Parent container rows (product_type='parent') are not sellable and are excluded.
+ *
+ * Sale item fields stored in cart + payload:
+ * - product_id: sellable row id (standalone or variant)
+ * - parent_id: parent container id for variants; self id for standalone
+ * - variant_id: variant product id for variants; null for standalone
+ * - display_name: "Parent - Variant" or standalone name
  */
-import React, { useState, useCallback } from "react";
+import React, { useMemo, useState, useCallback } from "react";
 import { invokeFunction } from "@/api/posyncClient";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -28,99 +33,208 @@ import {
   getAllCachedProducts,
   getAllCachedCustomers,
 } from "@/lib/db";
-import { generateClientTxId, generateEventId, getDeviceId, normalizeBarcode } from "@/lib/ids/deviceId";
+import {
+  generateClientTxId,
+  generateEventId,
+  getDeviceId,
+  normalizeBarcode,
+} from "@/lib/ids/deviceId";
 import { syncNow } from "@/components/lib/syncManager";
 import { useActiveStoreId } from "@/components/lib/activeStore";
 import { useStoreSettings } from "@/components/lib/useStoreSettings";
 import { useCurrentStaff } from "@/components/lib/useCurrentStaff";
 import { getStockQty } from "@/components/inventory/inventoryRules";
 
+function toCounterItem(p) {
+  if (!p) return null;
+  const isParent = p?.product_type === "parent";
+  if (isParent) {
+    // Parent rows are containers in the current DB model and not sellable.
+    return {
+      ...p,
+      counter_title: p.name,
+      counter_subtitle: "",
+      display_name: p.name,
+      parent_id_for_sale: p.id,
+      variant_id_for_sale: null,
+    };
+  }
+
+  const hasParent = !!p?.parent_id;
+  const parentName = (p?.parent_name || "").toString().trim();
+  const variantName = (p?.variant_name || "").toString().trim();
+
+  if (hasParent) {
+    const title = parentName || (p?.name || "").toString();
+    const subtitle = variantName || (p?.name || "").toString();
+    return {
+      ...p,
+      counter_title: title,
+      counter_subtitle: subtitle,
+      display_name: `${title} - ${subtitle}`.trim(),
+      parent_id_for_sale: p.parent_id,
+      variant_id_for_sale: p.id,
+    };
+  }
+
+  const title = (p?.name || "").toString();
+  return {
+    ...p,
+    counter_title: title,
+    counter_subtitle: "",
+    display_name: title,
+    parent_id_for_sale: p.id,
+    variant_id_for_sale: null,
+  };
+}
+
 export default function Counter() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { storeId: STORE_ID } = useActiveStoreId();
   const { settings } = useStoreSettings(STORE_ID);
-  const { staffMember, user } = useCurrentStaff(STORE_ID);
+  const { staffMember } = useCurrentStaff(STORE_ID);
+
   const [searchValue, setSearchValue] = useState("");
   const [autoAddOnEnter, setAutoAddOnEnter] = useState(true);
-  const [scannerOpen, setScannerOpen] = useState(false);
-  const [paymentOpen, setPaymentOpen] = useState(false);
-  const [adjustOpen, setAdjustOpen] = useState(false);
   const [cart, setCart] = useState([]);
+  const [paymentOpen, setPaymentOpen] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [adjustOpen, setAdjustOpen] = useState(false);
 
-  // Offline-first reads: Dexie cached_* (kept fresh by SyncManager pullUpdates)
-  const { data: products = [] } = useQuery({
-    queryKey: ["cached-products", STORE_ID],
-    queryFn: () => getAllCachedProducts(STORE_ID),
-    refetchInterval: 4_000,
-    initialData: [],
+  const {
+    data: products = [],
+    isLoading: productsLoading,
+    error: productsErr,
+  } = useQuery({
+    queryKey: ["products", STORE_ID],
+    enabled: !!STORE_ID,
+    queryFn: async () => {
+      const cached = await getAllCachedProducts(STORE_ID);
+      if (cached?.length) return cached;
+      if (navigator.onLine) {
+        const res = await invokeFunction("listProducts", { store_id: STORE_ID });
+        return res?.data?.products || res?.data?.data?.products || [];
+      }
+      return [];
+    },
+    staleTime: 30_000,
   });
 
   const { data: customers = [] } = useQuery({
-    queryKey: ["cached-customers", STORE_ID],
-    queryFn: () => getAllCachedCustomers(STORE_ID),
-    refetchInterval: 8_000,
-    initialData: [],
+    queryKey: ["customers", STORE_ID],
+    enabled: !!STORE_ID,
+    queryFn: async () => {
+      const cached = await getAllCachedCustomers(STORE_ID);
+      if (cached?.length) return cached;
+      if (navigator.onLine) {
+        const res = await invokeFunction("listCustomers", { store_id: STORE_ID });
+        return res?.data?.customers || res?.data?.data?.customers || [];
+      }
+      return [];
+    },
+    staleTime: 30_000,
   });
 
-  // ── Barcode lookup ────────────────────────────────────────────────────────
-  // Dexie first → server fallback (if online)
   const lookupBarcode = useCallback(
     async (barcode) => {
       const normalized = normalizeBarcode(barcode);
-      // 1. Dexie cache (works offline)
+      if (!normalized) return null;
+
       const cached = await getCachedProductByBarcode(STORE_ID, normalized);
       if (cached) return cached;
 
-      // 2. In-memory products array (Dexie snapshots)
-      const inMem = products.find((p) => normalizeBarcode(p.barcode) === normalized);
-      if (inMem) return inMem;
+      const fromList = (products || []).find((p) => normalizeBarcode(p?.barcode) === normalized);
+      if (fromList) return fromList;
 
-      // 3. Server fallback (online only)
       if (navigator.onLine) {
         try {
           const res = await invokeFunction("barcodeLookup", { store_id: STORE_ID, barcode: normalized });
           return res?.data?.product || res?.data?.data?.product || null;
-        } catch (_e) {
+        } catch {
           return null;
         }
       }
-
       return null;
     },
-    [products]
+    [products, STORE_ID]
   );
 
-  // ── Cart operations ───────────────────────────────────────────────────────
-  const addToCart = useCallback((product) => {
-  +  if (product?.product_type === "parent") {
-  +    toast.error("Parent products are not sellable. Piliin ang variant/item.", { duration: 2000 });
-  +    return;
-  +  }
+  // Build Counter list:
+  // - Standalone sellables: product_type='single' and parent_id is null
+  // - Variants: product_type='single' and parent_id is set
+  // Parent containers (product_type='parent') excluded.
+  const itemsForCounter = useMemo(() => {
+    const sellable = (products || []).filter((p) => p?.product_type !== "parent" && p?.is_active !== false);
+    return sellable.map(toCounterItem).filter(Boolean);
+  }, [products]);
 
-    setCart((prev) => {
-      const existing = prev.find((i) => i.product_id === product.id);
-      if (existing) {
-        return prev.map((i) =>
-          i.product_id === product.id
-            ? { ...i, qty: i.qty + 1, line_total_centavos: (i.qty + 1) * i.unit_price_centavos }
-            : i
-        );
-      }
-      return [
-        ...prev,
-        {
-          product_id: product.id,
-          product_name: product.name,
-          qty: 1,
-          unit_price_centavos: product.selling_price_centavos || 0,
-          cost_price_centavos: product.cost_price_centavos || 0,
-          line_total_centavos: product.selling_price_centavos || 0,
-        },
-      ];
+  const counterItemById = useMemo(() => {
+    const m = new Map();
+    for (const it of itemsForCounter) m.set(it.id, it);
+    return m;
+  }, [itemsForCounter]);
+
+  // Live filter grid based on new display_name rule.
+  const filteredCounterItems = useMemo(() => {
+    const q = String(searchValue || "").trim().toLowerCase();
+    if (!q) return itemsForCounter;
+    return itemsForCounter.filter((it) => {
+      const hay = `${it.display_name || ""} ${it.counter_title || ""} ${it.counter_subtitle || ""}`.toLowerCase();
+      return hay.includes(q);
     });
-    toast.success(`Added: ${product.name} (+1)`, { duration: 1200 });
-  }, []);
+  }, [itemsForCounter, searchValue]);
+
+  const addToCart = useCallback(
+    (productOrItem) => {
+      if (!productOrItem) return;
+
+      const item = productOrItem.display_name
+        ? productOrItem
+        : counterItemById.get(productOrItem.id) || toCounterItem(productOrItem);
+
+      if (!item) return;
+      if (item?.product_type === "parent") {
+        toast.error("This is a parent container. Choose a variant or create as Single Item.", { duration: 2500 });
+        return;
+      }
+
+      const productId = item.id;
+      const parent_id = item.parent_id_for_sale || productId;
+      const variant_id = item.variant_id_for_sale || null;
+      const display_name = item.display_name || item.name || "Item";
+      const unit = Number(item.selling_price_centavos || 0);
+      const cost = Number(item.cost_price_centavos || 0);
+
+      setCart((prev) => {
+        const existing = prev.find((i) => i.product_id === productId);
+        if (existing) {
+          return prev.map((i) =>
+            i.product_id === productId
+              ? { ...i, qty: i.qty + 1, line_total_centavos: (i.qty + 1) * i.unit_price_centavos }
+              : i
+          );
+        }
+        return [
+          ...prev,
+          {
+            product_id: productId,
+            parent_id,
+            variant_id,
+            display_name,
+            product_name: display_name,
+            qty: 1,
+            unit_price_centavos: unit,
+            cost_price_centavos: cost,
+            line_total_centavos: unit,
+          },
+        ];
+      });
+
+      toast.success(`Added: ${display_name} (+1)`, { duration: 1200 });
+    },
+    [counterItemById]
+  );
 
   const decrementCart = useCallback((productId) => {
     setCart((prev) =>
@@ -138,44 +252,30 @@ export default function Counter() {
     setCart((prev) => prev.filter((i) => i.product_id !== productId));
   }, []);
 
-  // ── Scanner handlers ──────────────────────────────────────────────────────
-  const handleScanFound = useCallback(
-    async (barcode) => {
-      const product = await lookupBarcode(barcode);
-      if (product) {
-        addToCart(product);
-      } else {
-        toast.warning(
-          "Not in offline catalog. Connect to internet to add this item.",
-          { duration: 2600 }
-        );
-      }
-    },
-    [lookupBarcode, addToCart]
-  );
-
   const handleEnterSubmit = useCallback(
     async (value) => {
       const product = await lookupBarcode(value);
       if (product && autoAddOnEnter) {
         addToCart(product);
         setSearchValue("");
-      } else if (product) {
-        setSearchValue(product.name);
+        return;
+      }
+      if (product) {
+        const it = toCounterItem(product);
+        setSearchValue(it?.display_name || product.name);
+        return;
+      }
+
+      const q = String(value || "").toLowerCase();
+      const byName = itemsForCounter.filter((p) => String(p.display_name || "").toLowerCase().includes(q));
+      if (byName.length === 1 && autoAddOnEnter) {
+        addToCart(byName[0]);
+        setSearchValue("");
       } else {
-        // Try name search
-        const byName = products.filter((p) =>
-          p.name.toLowerCase().includes(value.toLowerCase())
-        );
-        if (byName.length === 1 && autoAddOnEnter) {
-          addToCart(byName[0]);
-          setSearchValue("");
-        } else {
-          toast.warning("Not found");
-        }
+        toast.warning("Not found");
       }
     },
-    [lookupBarcode, addToCart, autoAddOnEnter, products]
+    [lookupBarcode, autoAddOnEnter, addToCart, itemsForCounter]
   );
 
   const subtotalCentavos = cart.reduce((sum, i) => sum + i.line_total_centavos, 0);
@@ -184,14 +284,15 @@ export default function Counter() {
   const totalCentavos = Math.max(0, subtotalCentavos - referralDiscountCentavos);
 
   const cartItemsMap = {};
-  cart.forEach((i) => { cartItemsMap[i.product_id] = i.qty; });
+  cart.forEach((i) => {
+    cartItemsMap[i.product_id] = i.qty;
+  });
 
   const handleComplete = () => {
     if (cart.length === 0) return;
     setPaymentOpen(true);
   };
 
-  // ── Park sale — NO stock deduction ───────────────────────────────────────
   const handlePark = async () => {
     if (cart.length === 0) return;
     const client_tx_id = generateClientTxId();
@@ -207,6 +308,9 @@ export default function Counter() {
         status: "parked",
         items: cart.map((i) => ({
           product_id: i.product_id,
+          parent_id: i.parent_id || null,
+          variant_id: i.variant_id || null,
+          display_name: i.display_name || i.product_name || "",
           qty: i.qty,
           unit_price_centavos: i.unit_price_centavos,
           line_discount_centavos: 0,
@@ -218,7 +322,6 @@ export default function Counter() {
       },
     };
 
-    // Always enqueue (idempotent on server)
     await enqueueOfflineEvent({
       store_id: STORE_ID,
       event_id,
@@ -233,15 +336,11 @@ export default function Counter() {
     setCart([]);
   };
 
-  // ── Complete sale — offline-safe ──────────────────────────────────────────
   const handlePaymentConfirm = async (payload) => {
     const client_tx_id = generateClientTxId();
     const event_id = generateEventId();
     const device_id = getDeviceId();
     const isOnline = navigator.onLine;
-
-    // Step 10: split + partial payments.
-    // PaymentDrawer returns payments[] as { method, amount_centavos } (already centavos).
     const payments = Array.isArray(payload?.payments) ? payload.payments : [];
 
     const completeSalePayload = {
@@ -253,6 +352,9 @@ export default function Counter() {
         status: payload.status,
         items: cart.map((i) => ({
           product_id: i.product_id,
+          parent_id: i.parent_id || null,
+          variant_id: i.variant_id || null,
+          display_name: i.display_name || i.product_name || "",
           qty: i.qty,
           unit_price_centavos: i.unit_price_centavos,
           line_discount_centavos: 0,
@@ -264,7 +366,6 @@ export default function Counter() {
       },
     };
 
-    // 1. Always enqueue to offline_queue (Dexie) — this is the source of truth
     await enqueueOfflineEvent({
       store_id: STORE_ID,
       event_id,
@@ -275,14 +376,12 @@ export default function Counter() {
       created_at_device: Date.now(),
     });
 
-    // 2. Create local receipt stub (queued)
     await upsertLocalReceipt({
       client_tx_id,
       store_id: STORE_ID,
       local_status: "queued",
     });
 
-    // 3. If online, attempt sync immediately (still queue-first)
     if (isOnline) {
       syncNow(STORE_ID)
         .then(() => queryClient.invalidateQueries({ queryKey: ["products", STORE_ID] }))
@@ -295,19 +394,11 @@ export default function Counter() {
     setCart([]);
     setPaymentOpen(false);
   };
-  const addToCart = useCallback((product) => {
-  +  if (product?.product_type === "parent") {
-  +    toast.error("Parent products are not sellable. Piliin ang variant/item.", { duration: 2000 });
-  +    return;
-  +  }
-    setCart((prev) => {
-      ...
-    });
-    toast.success(`Added: ${product.name} (+1)`, { duration: 1200 });
-  }, []);
-  const sellable = products.filter((p) => p?.product_type !== "parent" && p?.is_active !== false);
-  const totalSellable = sellable.length;
-  const trackedCount = sellable.filter((p) => !!p.track_stock).length;
+
+  // Inventory health uses raw sellables
+  const sellableRaw = (products || []).filter((p) => p?.product_type !== "parent" && p?.is_active !== false);
+  const totalSellable = sellableRaw.length;
+  const trackedCount = sellableRaw.filter((p) => !!p.track_stock).length;
   const lowDefault = Number(settings?.low_stock_threshold_default ?? 5);
   const effectiveLow = (p) => {
     const v = p?.low_stock_threshold;
@@ -315,25 +406,27 @@ export default function Counter() {
     return Number.isFinite(n) ? n : lowDefault;
   };
 
-  const lowStock = sellable.filter((p) => {
+  const lowStock = sellableRaw.filter((p) => {
     if (!p.track_stock) return false;
     const qty = getStockQty(p);
     return qty > 0 && qty <= effectiveLow(p);
   });
-  const outOfStock = sellable.filter((p) => {
+  const outOfStock = sellableRaw.filter((p) => {
     if (!p.track_stock) return false;
     const qty = getStockQty(p);
     return qty === 0;
   });
-  const negativeStock = sellable.filter((p) => {
+  const negativeStock = sellableRaw.filter((p) => {
     if (!p.track_stock) return false;
     const qty = getStockQty(p);
     return qty < 0;
   });
 
+  if (!STORE_ID) return <div className="p-6 text-stone-500">Please select a store.</div>;
+  if (productsErr) return <div className="p-6 text-red-600">Failed to load products.</div>;
+
   return (
     <div className="pb-36">
-      {/* Search + Scan (wedge scanner) */}
       <div className="px-4 pt-4 pb-2">
         <WedgeScannerInput
           value={searchValue}
@@ -345,7 +438,6 @@ export default function Counter() {
         />
       </div>
 
-      {/* Scan Mode CTA */}
       <div className="px-4 pb-3">
         <button
           onClick={() => setScannerOpen(true)}
@@ -357,17 +449,16 @@ export default function Counter() {
         </button>
       </div>
 
-      {/* Quick Product Grid */}
       <div className="px-4 pb-4">
         <QuickProductGrid
-          products={sellable}
+          products={filteredCounterItems}
           cartItems={cartItemsMap}
           onTap={addToCart}
           onLongPress={decrementCart}
+          loading={productsLoading}
         />
       </div>
 
-      {/* Inventory Health */}
       <div className="px-4 pb-4">
         <InventoryHealthCard
           totalSellable={totalSellable}
@@ -380,15 +471,14 @@ export default function Counter() {
         />
       </div>
 
-      {/* Cart */}
       <CartPanel
         items={cart}
         subtotalCentavos={subtotalCentavos}
         discountCentavos={referralDiscountCentavos}
         totalCentavos={totalCentavos}
         onInc={(pid) => {
-          const product = products.find((p) => p.id === pid);
-          if (product) addToCart(product);
+          const item = counterItemById.get(pid);
+          if (item) addToCart(item);
         }}
         onDec={decrementCart}
         onRemove={removeFromCart}
@@ -396,7 +486,6 @@ export default function Counter() {
         onPark={handlePark}
       />
 
-      {/* Scanner Modal — ZXing continuous */}
       <BarcodeScannerModal
         open={scannerOpen}
         mode="continuous"
@@ -405,8 +494,9 @@ export default function Counter() {
         onLookup={async (barcode) => {
           const product = await lookupBarcode(barcode);
           if (product) {
-            addToCart(product);
-            return { found: true, handled: true, label: product.name };
+            const item = toCounterItem(product);
+            addToCart(item);
+            return { found: true, handled: true, label: item?.display_name || product.name };
           }
           return { found: false };
         }}
@@ -422,7 +512,6 @@ export default function Counter() {
         onClose={() => setScannerOpen(false)}
       />
 
-      {/* Payment Drawer */}
       <PaymentDrawer
         open={paymentOpen}
         storeId={STORE_ID}
@@ -432,15 +521,16 @@ export default function Counter() {
         onClose={() => setPaymentOpen(false)}
       />
 
-      {/* Adjust Stock (Step 9) */}
       <AdjustStockDrawer
         open={adjustOpen}
         storeId={STORE_ID}
-        products={sellable}
-        settings={settings}
+        products={sellableRaw}
         staffMember={staffMember}
-        user={user}
         onClose={() => setAdjustOpen(false)}
+        onDone={() => {
+          setAdjustOpen(false);
+          queryClient.invalidateQueries({ queryKey: ["products", STORE_ID] });
+        }}
       />
     </div>
   );

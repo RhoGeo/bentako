@@ -4,7 +4,7 @@ import { Package } from "lucide-react";
 
 const CATEGORY_CHIPS = ["All", "Drinks", "Snacks", "Canned", "Hygiene", "Others"];
 
-export default function QuickProductGrid({ products = [], cartItems = {}, onTap, onLongPress }) {
+export default function QuickProductGrid({ products = [], cartItems = {}, onTap, onLongPress, loading = false }) {
   const [selectedCategory, setSelectedCategory] = useState("All");
   const longPressTimer = React.useRef(null);
 
@@ -13,9 +13,9 @@ export default function QuickProductGrid({ products = [], cartItems = {}, onTap,
       ? products
       : products.filter((p) => p.category === selectedCategory);
 
-  const handleTouchStart = (product) => {
+  const handleTouchStart = (productId) => {
     longPressTimer.current = setTimeout(() => {
-      onLongPress?.(product);
+      onLongPress?.(productId);
     }, 500);
   };
 
@@ -46,13 +46,15 @@ export default function QuickProductGrid({ products = [], cartItems = {}, onTap,
       <div className="grid grid-cols-3 gap-2">
         {filtered.slice(0, 12).map((product) => {
           const qty = cartItems[product.id] || 0;
+          const title = product.counter_title || product.parent_name || product.name;
+          const subtitle = product.counter_subtitle || product.variant_name || "";
           return (
             <button
               key={product.id}
               onClick={() => onTap?.(product)}
-              onTouchStart={() => handleTouchStart(product)}
+              onTouchStart={() => handleTouchStart(product.id)}
               onTouchEnd={handleTouchEnd}
-              onMouseDown={() => handleTouchStart(product)}
+              onMouseDown={() => handleTouchStart(product.id)}
               onMouseUp={handleTouchEnd}
               className="relative bg-white rounded-xl p-3 border border-stone-100 shadow-sm hover:shadow-md active:scale-[0.97] transition-all text-left no-select"
             >
@@ -64,9 +66,16 @@ export default function QuickProductGrid({ products = [], cartItems = {}, onTap,
               <div className="w-8 h-8 rounded-lg bg-stone-50 flex items-center justify-center mb-2">
                 <Package className="w-4 h-4 text-stone-400" />
               </div>
-              <p className="text-xs font-medium text-stone-800 leading-tight line-clamp-2 mb-1">
-                {product.name}
+              <p className="text-xs font-semibold text-stone-800 leading-tight line-clamp-2">
+                {title}
               </p>
+              {subtitle ? (
+                <p className="text-[11px] text-stone-500 leading-tight line-clamp-2 mb-1">
+                  {subtitle}
+                </p>
+              ) : (
+                <div className="h-[14px] mb-1" />
+              )}
               <CentavosDisplay
                 centavos={product.selling_price_centavos}
                 size="xs"
@@ -77,9 +86,15 @@ export default function QuickProductGrid({ products = [], cartItems = {}, onTap,
         })}
       </div>
 
-      {filtered.length === 0 && (
+      {!loading && filtered.length === 0 && (
         <div className="text-center py-8 text-stone-400 text-sm">
           Walang products dito.
+        </div>
+      )}
+
+      {loading && (
+        <div className="text-center py-8 text-stone-400 text-sm">
+          Loading products…
         </div>
       )}
     </div>

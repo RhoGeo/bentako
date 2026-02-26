@@ -14,7 +14,7 @@ function CartLineItem({ item, onInc, onDec, onRemove }) {
   return (
     <div className="flex items-center gap-3 py-3 border-b border-stone-100 last:border-0">
       <div className="flex-1 min-w-0">
-        <p className="font-medium text-sm text-stone-800 truncate">{item.product_name}</p>
+        <p className="font-medium text-sm text-stone-800 truncate">{item.display_name || item.product_name}</p>
         <CentavosDisplay centavos={item.unit_price_centavos} size="xs" className="text-stone-500" />
       </div>
       <div className="flex items-center gap-1.5">

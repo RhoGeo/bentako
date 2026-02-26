@@ -169,6 +169,13 @@ export default function Items() {
     const sellable = (products || []).filter((p) => p.product_type !== "parent" && p.is_active !== false);
 
     const rows = sellable.map((p) => {
+      const hasParent = !!p.parent_id;
+      const parentName = (p.parent_name || "").toString().trim();
+      const variantName = (p.variant_name || "").toString().trim();
+      const displayTitle = hasParent ? (parentName || p.name) : (p.name || "").toString();
+      const displaySubtitle = hasParent ? (variantName || "") : "";
+      const displayName = displaySubtitle ? `${displayTitle} - ${displaySubtitle}` : displayTitle;
+
       const qty = getStockQty(p);
       const tag = getInventoryTag(p, settings);
       const thresholds = getEffectiveThresholds(p, settings);
@@ -177,6 +184,9 @@ export default function Items() {
       return {
         id: p.id,
         name: (p.name || "").toString(),
+        displayTitle,
+        displaySubtitle,
+        displayName,
         barcode: p.barcode || "",
         product: p,
         qty,
@@ -368,7 +378,7 @@ export default function Items() {
                 <div className="w-12 h-12 rounded-xl bg-stone-50 flex items-center justify-center flex-shrink-0 overflow-hidden">
                   {/* If product has image_url, show it; else fallback icon */}
                   {product.image_url ? (
-                    <img src={product.image_url} alt={product.name} className="w-full h-full object-cover" />
+                    <img src={product.image_url} alt={row.displayName || product.name} className="w-full h-full object-cover" />
                   ) : (
                     <Package className="w-6 h-6 text-stone-300" />
                   )}
@@ -376,7 +386,12 @@ export default function Items() {
 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2">
-                    <p className="font-semibold text-sm text-stone-800 truncate">{product.name}</p>
+                    <div className="min-w-0">
+                      <p className="font-semibold text-sm text-stone-800 truncate">{row.displayTitle || product.name}</p>
+                      {row.displaySubtitle ? (
+                        <p className="text-[11px] text-stone-500 truncate">{row.displaySubtitle}</p>
+                      ) : null}
+                    </div>
                     <InventoryTagBadge tag={row.tag} label={row.tagLabel} />
                   </div>
 
