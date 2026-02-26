@@ -21,6 +21,80 @@ function assertString(v: unknown, field: string) {
   return s;
 }
 
+function stripUnpairedSurrogates(input: string): string {
+  // Removes lone UTF-16 surrogates that break Postgres JSON parsing
+  let out = "";
+  for (let i = 0; i < input.length; i++) {
+    const c = input.charCodeAt(i);
+
+    // High surrogate
+    if (c >= 0xd800 && c <= 0xdbff) {
+      const next = i + 1 < input.length ? input.charCodeAt(i + 1) : 0;
+      // Valid pair?
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        out += input[i] + input[i + 1];
+        i++; // consume low surrogate
+      } else {
+        // drop unpaired high surrogate
+      }
+      continue;
+    }
+
+    // Low surrogate without preceding high surrogate -> drop
+    if (c >= 0xdc00 && c <= 0xdfff) continue;
+
+    out += input[i];
+  }
+  return out;
+}
+
+function coerceJsonValue(value: any, field: string) {
+  if (value === null || value === undefined) return value;
+  if (typeof value === "string") {
+    const t = value.trim();
+    if (!t) return null;
+    try {
+      return JSON.parse(t);
+    } catch {
+      throw new Error(`${field} must be valid JSON`);
+    }
+  }
+  return value;
+}
+
+function normalizeSaleForRpc(rawSale: any) {
+  const sale = coerceJsonValue(rawSale, "sale") || {};
+  const itemsRaw = Array.isArray(sale?.items) ? sale.items : [];
+  const paymentsRaw = Array.isArray(sale?.payments) ? sale.payments : [];
+
+  return {
+    sale_type: String(sale?.sale_type || "counter"),
+    status: String(sale?.status || "completed"),
+
+    // IMPORTANT: Only forward fields the SQL RPC expects.
+    items: itemsRaw.map((it: any) => ({
+      product_id: String(it?.product_id || ""),
+      qty: Number(it?.qty ?? 0),
+      unit_price_centavos: Math.trunc(Number(it?.unit_price_centavos ?? 0)),
+      line_discount_centavos: Math.trunc(Number(it?.line_discount_centavos ?? 0)),
+    })),
+
+    discount_centavos: Math.trunc(Number(sale?.discount_centavos ?? 0)),
+
+    payments: paymentsRaw
+      .map((p: any) => ({
+        method: String(p?.method || ""),
+        amount_centavos: Math.trunc(Number(p?.amount_centavos ?? 0)),
+      }))
+      .filter((p: any) => p.method && Number.isFinite(p.amount_centavos) && p.amount_centavos >= 0),
+
+    customer_id: sale?.customer_id ? String(sale.customer_id) : null,
+
+    // Notes is the only string we keep; sanitize it
+    notes: stripUnpairedSurrogates(String(sale?.notes || "")),
+  };
+}
+
 function classifyFailure(err: unknown): "failed_retry" | "failed_permanent" {
   const msg = err instanceof Error ? err.message : String(err);
   if (
@@ -73,7 +147,7 @@ async function requireOwnerPinIfEnabled(supabase: any, store_id: string, setting
 
 async function applyCompleteSale(supabase: any, store_id: string, user_id: string, device_id: string, payload: any) {
   const client_tx_id = assertString(payload?.client_tx_id, "client_tx_id");
-  const sale = payload?.sale;
+  const sale = normalizeSaleForRpc(payload?.sale);
   if (!sale) throw new Error("sale required");
 
   const { data, error } = await supabase.rpc("posync_apply_sale", {
@@ -83,13 +157,17 @@ async function applyCompleteSale(supabase: any, store_id: string, user_id: strin
     p_client_tx_id: client_tx_id,
     p_sale: sale,
   });
-  if (error) throw new Error(error.message);
+  if (error) {
+  const details = (error as any)?.details ? ` | ${(error as any).details}` : "";
+  const hint = (error as any)?.hint ? ` | hint: ${(error as any).hint}` : "";
+  throw new Error(`${error.message}${details}${hint}`);
+  }
   return data;
 }
 
 async function applyParkSale(supabase: any, store_id: string, user_id: string, device_id: string, payload: any) {
   const client_tx_id = assertString(payload?.client_tx_id, "client_tx_id");
-  const sale = payload?.sale;
+  const sale = normalizeSaleForRpc(payload?.sale);
   if (!sale) throw new Error("sale required");
   const parkSale = { ...sale, status: "parked" };
 
