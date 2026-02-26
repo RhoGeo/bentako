@@ -3,6 +3,7 @@ import { jsonOk } from "../_shared/response.ts";
 import { mapErrorToResponse } from "../_shared/errors.ts";
 import { requireAuth } from "../_shared/auth.ts";
 import { supabaseService } from "../_shared/supabase.ts";
+import { rpcAdmin } from "../_shared/rpc.ts";
 import { requireStoreAccess, requireStorePermission } from "../_shared/storeAccess.ts";
 
 type EventEnvelope = {
@@ -73,6 +74,13 @@ function normalizeSaleForRpc(rawSale: any) {
   };
 }
 
+function formatAdminError(err: any): string {
+  const msg = err?.message ? String(err.message) : String(err);
+  const details = err?.details ? ` | ${String(err.details)}` : "";
+  const hint = err?.hint ? ` | hint: ${String(err.hint)}` : "";
+  return `${msg}${details}${hint}`;
+}
+
 function classifyFailure(err: unknown): "failed_retry" | "failed_permanent" {
   const msg = err instanceof Error ? err.message : String(err);
   if (
@@ -132,17 +140,24 @@ async function applyCompleteSale(supabase: any, store_id: string, user_id: strin
   const sale = normalizeSaleForRpc(payload?.sale);
   if (!sale) throw new Error("sale required");
 
-  const { data, error } = await supabase.rpc("posync_apply_sale_text", {
+  const client_tx_id = assertString(payload?.client_tx_id, "client_tx_id");
+  const sale = normalizeSaleForRpc(payload?.sale);
+
+  // Extra guard: ensure JSON serialization is valid before sending to DB.
+  const saleJson = JSON.stringify(sale);
+  try { JSON.parse(saleJson); } catch (_e) { throw new Error("sale payload is not valid JSON"); }
+
+  let data;
+  try {
+    data = await rpcAdmin("posync_apply_sale", {
     p_store_id: store_id,
     p_user_id: user_id,
     p_device_id: device_id,
     p_client_tx_id: client_tx_id,
-    p_sale_text: JSON.stringify(sale),
+    p_sale: sale,
   });
-  if (error) {
-    const details = (error as any)?.details ? ` | ${(error as any).details}` : "";
-    const hint = (error as any)?.hint ? ` | hint: ${(error as any).hint}` : "";
-    throw new Error(`${error.message}${details}${hint}`);
+  } catch (e) {
+    throw new Error(formatAdminError(e));
   }
   return data;
 }
@@ -150,21 +165,18 @@ async function applyCompleteSale(supabase: any, store_id: string, user_id: strin
 async function applyParkSale(supabase: any, store_id: string, user_id: string, device_id: string, payload: any) {
   const client_tx_id = assertString(payload?.client_tx_id, "client_tx_id");
   const sale = normalizeSaleForRpc(payload?.sale);
-  if (!sale) throw new Error("sale required");
   const parkSale = { ...sale, status: "parked" };
 
-  const { data, error } = await supabase.rpc("posync_apply_sale_text", {
+  const saleJson = JSON.stringify(parkSale);
+  try { JSON.parse(saleJson); } catch (_e) { throw new Error("sale payload is not valid JSON"); }
+
+  const data = await rpcAdmin("posync_apply_sale", {
     p_store_id: store_id,
     p_user_id: user_id,
     p_device_id: device_id,
     p_client_tx_id: client_tx_id,
-    p_sale_text: JSON.stringify(parkSale),
+    p_sale: parkSale,
   });
-  if (error) {
-    const details = (error as any)?.details ? ` | ${(error as any).details}` : "";
-    const hint = (error as any)?.hint ? ` | hint: ${(error as any).hint}` : "";
-    throw new Error(`${error.message}${details}${hint}`);
-  }
   return data;
 }
 
@@ -173,8 +185,9 @@ async function applyRecordPayment(supabase: any, store_id: string, user_id: stri
   const payment_request_id = assertString(payload?.payment_request_id, "payment_request_id");
   const p = payload?.payment;
   if (!p?.method) throw new Error("payment.method required");
-
-  const { data, error } = await supabase.rpc("posync_record_payment", {
+  let data;
+  try {
+    data = await rpcAdmin("posync_record_payment", {
     p_store_id: store_id,
     p_user_id: user_id,
     p_device_id: device_id,
@@ -184,10 +197,8 @@ async function applyRecordPayment(supabase: any, store_id: string, user_id: stri
     p_amount_centavos: Number(p.amount_centavos || 0),
     p_note: String(p.note || ""),
   });
-  if (error) {
-    const details = (error as any)?.details ? ` | ${(error as any).details}` : "";
-    const hint = (error as any)?.hint ? ` | hint: ${(error as any).hint}` : "";
-    throw new Error(`${error.message}${details}${hint}`);
+  } catch (e) {
+    throw new Error(formatAdminError(e));
   }
   return data;
 }
@@ -198,8 +209,9 @@ async function applyAdjustStock(supabase: any, store_id: string, user_id: string
   const reason = assertString(payload?.reason, "reason");
   const delta_qty = Number(payload?.delta_qty);
   if (!Number.isFinite(delta_qty) || delta_qty === 0) throw new Error("delta_qty must be non-zero");
-
-  const { data, error } = await supabase.rpc("posync_adjust_stock", {
+  let data;
+  try {
+    data = await rpcAdmin("posync_adjust_stock", {
     p_store_id: store_id,
     p_user_id: user_id,
     p_product_id: product_id,
@@ -208,10 +220,8 @@ async function applyAdjustStock(supabase: any, store_id: string, user_id: string
     p_reason: reason,
     p_note: String(payload?.note || ""),
   });
-  if (error) {
-    const details = (error as any)?.details ? ` | ${(error as any).details}` : "";
-    const hint = (error as any)?.hint ? ` | hint: ${(error as any).hint}` : "";
-    throw new Error(`${error.message}${details}${hint}`);
+  } catch (e) {
+    throw new Error(formatAdminError(e));
   }
   return data;
 }
@@ -226,8 +236,9 @@ async function applyRestockProduct(supabase: any, store_id: string, user_id: str
     payload?.new_cost_centavos === null || payload?.new_cost_centavos === undefined
       ? null
       : Number(payload?.new_cost_centavos);
-
-  const { data, error } = await supabase.rpc("posync_restock_product", {
+  let data;
+  try {
+    data = await rpcAdmin("posync_restock_product", {
     p_store_id: store_id,
     p_user_id: user_id,
     p_product_id: product_id,
@@ -236,10 +247,8 @@ async function applyRestockProduct(supabase: any, store_id: string, user_id: str
     p_new_cost_centavos: new_cost_centavos === null ? null : Math.trunc(new_cost_centavos),
     p_note: String(payload?.note || ""),
   });
-  if (error) {
-    const details = (error as any)?.details ? ` | ${(error as any).details}` : "";
-    const hint = (error as any)?.hint ? ` | hint: ${(error as any).hint}` : "";
-    throw new Error(`${error.message}${details}${hint}`);
+  } catch (e) {
+    throw new Error(formatAdminError(e));
   }
   return data;
 }
@@ -248,8 +257,9 @@ async function applyVoidSale(supabase: any, store_id: string, user_id: string, d
   const sale_id = assertString(payload?.sale_id, "sale_id");
   const void_request_id = assertString(payload?.void_request_id, "void_request_id");
   const note = String(payload?.note || "");
-
-  const { data, error } = await supabase.rpc("posync_void_sale", {
+  let data;
+  try {
+    data = await rpcAdmin("posync_void_sale", {
     p_store_id: store_id,
     p_user_id: user_id,
     p_device_id: device_id,
@@ -257,10 +267,8 @@ async function applyVoidSale(supabase: any, store_id: string, user_id: string, d
     p_void_request_id: void_request_id,
     p_note: note,
   });
-  if (error) {
-    const details = (error as any)?.details ? ` | ${(error as any).details}` : "";
-    const hint = (error as any)?.hint ? ` | hint: ${(error as any).hint}` : "";
-    throw new Error(`${error.message}${details}${hint}`);
+  } catch (e) {
+    throw new Error(formatAdminError(e));
   }
   return data;
 }
@@ -269,8 +277,9 @@ async function applyRefundSale(supabase: any, store_id: string, user_id: string,
   const sale_id = assertString(payload?.sale_id, "sale_id");
   const refund_request_id = assertString(payload?.refund_request_id, "refund_request_id");
   const refund = payload?.refund || {};
-
-  const { data, error } = await supabase.rpc("posync_refund_sale", {
+  let data;
+  try {
+    data = await rpcAdmin("posync_refund_sale", {
     p_store_id: store_id,
     p_user_id: user_id,
     p_device_id: device_id,
@@ -278,10 +287,8 @@ async function applyRefundSale(supabase: any, store_id: string, user_id: string,
     p_refund_request_id: refund_request_id,
     p_refund: refund,
   });
-  if (error) {
-    const details = (error as any)?.details ? ` | ${(error as any).details}` : "";
-    const hint = (error as any)?.hint ? ` | hint: ${(error as any).hint}` : "";
-    throw new Error(`${error.message}${details}${hint}`);
+  } catch (e) {
+    throw new Error(formatAdminError(e));
   }
   return data;
 }

@@ -315,9 +315,6 @@ export default function Counter() {
         status: "parked",
         items: cart.map((i) => ({
           product_id: i.product_id,
-          parent_id: i.parent_id || null,
-          variant_id: i.variant_id || null,
-          display_name: i.display_name || i.product_name || "",
           qty: i.qty,
           unit_price_centavos: i.unit_price_centavos,
           line_discount_centavos: 0,
