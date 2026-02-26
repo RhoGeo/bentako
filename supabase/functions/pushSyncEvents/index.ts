@@ -26,6 +26,13 @@ function assertString(v: unknown, field: string) {
 
 function classifyFailure(err: unknown): "failed_retry" | "failed_permanent" {
   const msg = err instanceof Error ? err.message : String(err);
+
+  // If this came from PostgREST/Supabase, it may have a code field
+  const code = (err as any)?.code;
+
+  // SQL RPC raises errcode 22023 for "Parent products are not sellable"
+  if (code === "22023") return "failed_permanent";
+
   if (
     msg === "AUTH_REQUIRED" ||
     msg === "AUTH_EXPIRED" ||
@@ -36,7 +43,7 @@ function classifyFailure(err: unknown): "failed_retry" | "failed_permanent" {
     /must be/i.test(msg) ||
     /NOT_FOUND/i.test(msg) ||
     /not found/i.test(msg) ||
-+   /Parent products are not sellable/i.test(msg) ||
+    /Parent products are not sellable/i.test(msg) ||
     /PAYMENT_EXCEEDS_BALANCE/i.test(msg) ||
     /NEGATIVE_STOCK_NOT_ALLOWED/i.test(msg) ||
     /SALE_NOT_VOIDABLE/i.test(msg) ||
