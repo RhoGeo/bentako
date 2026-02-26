@@ -140,26 +140,26 @@ async function applyCompleteSale(supabase: any, store_id: string, user_id: strin
   const sale = normalizeSaleForRpc(payload?.sale);
   if (!sale) throw new Error("sale required");
 
-  const client_tx_id = assertString(payload?.client_tx_id, "client_tx_id");
-  const sale = normalizeSaleForRpc(payload?.sale);
-
   // Extra guard: ensure JSON serialization is valid before sending to DB.
   const saleJson = JSON.stringify(sale);
-  try { JSON.parse(saleJson); } catch (_e) { throw new Error("sale payload is not valid JSON"); }
-
-  let data;
   try {
-    data = await rpcAdmin("posync_apply_sale", {
-    p_store_id: store_id,
-    p_user_id: user_id,
-    p_device_id: device_id,
-    p_client_tx_id: client_tx_id,
-    p_sale: sale,
-  });
+    JSON.parse(saleJson);
+  } catch (_e) {
+    throw new Error("sale payload is not valid JSON");
+  }
+
+  try {
+    const data = await rpcAdmin("posync_apply_sale", {
+      p_store_id: store_id,
+      p_user_id: user_id,
+      p_device_id: device_id,
+      p_client_tx_id: client_tx_id,
+      p_sale: sale,
+    });
+    return data;
   } catch (e) {
     throw new Error(formatAdminError(e));
   }
-  return data;
 }
 
 async function applyParkSale(supabase: any, store_id: string, user_id: string, device_id: string, payload: any) {

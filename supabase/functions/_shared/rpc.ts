@@ -1,5 +1,3 @@
-import { corsHeaders } from "./cors.ts";
-
 /**
  * Minimal admin RPC caller using direct fetch to PostgREST.
  *
@@ -40,7 +38,6 @@ export async function rpcAdmin<T = any>(fnName: string, args: Record<string, any
   const res = await fetch(`${url}/rest/v1/rpc/${fnName}`, {
     method: "POST",
     headers: {
-      ...corsHeaders,
       apikey: key,
       authorization: `Bearer ${key}`,
       "content-type": "application/json",
