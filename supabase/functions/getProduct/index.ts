@@ -26,7 +26,7 @@ Deno.serve(async (req) => {
     const { data: row, error } = await supabase
       .from("products")
       .select(
-        "product_id,store_id,is_parent,parent_product_id,name,barcode,price_centavos,cost_price_centavos,track_stock,stock_quantity,low_stock_threshold,is_active,created_at,updated_at,deleted_at,category:categories(name),parent:products!products_parent_product_id_fkey(name)"
+        "product_id,store_id,is_parent,parent_product_id,name,barcode,price_centavos,cost_price_centavos,track_stock,stock_quantity,low_stock_threshold,is_active,created_at,updated_at,deleted_at,category:categories(name),parent:products!parent_product_id(name)"
       )
       .eq("store_id", store_id)
       .eq("product_id", product_id)
