@@ -93,6 +93,11 @@ export default function Counter() {
 
   // ── Cart operations ───────────────────────────────────────────────────────
   const addToCart = useCallback((product) => {
+  +  if (product?.product_type === "parent") {
+  +    toast.error("Parent products are not sellable. Piliin ang variant/item.", { duration: 2000 });
+  +    return;
+  +  }
+
     setCart((prev) => {
       const existing = prev.find((i) => i.product_id === product.id);
       if (existing) {
@@ -346,7 +351,7 @@ export default function Counter() {
       {/* Quick Product Grid */}
       <div className="px-4 pb-4">
         <QuickProductGrid
-          products={products.slice(0, 12)}
+          products={sellable}
           cartItems={cartItemsMap}
           onTap={addToCart}
           onLongPress={decrementCart}

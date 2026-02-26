@@ -40,14 +40,14 @@ Deno.serve(async (req) => {
       .select("user_id,full_name,phone_number,email")
       .limit(1);
 
-    if (uerr) {
-      // unique email violation
-      const msg = (uerr as any)?.message || "Email already exists";
-      if (msg.toLowerCase().includes("duplicate") || msg.toLowerCase().includes("unique")) {
-        return fail("EMAIL_EXISTS", "Email already exists", undefined, 409);
-      }
-      return fail("DB_ERROR", "Failed to create user", uerr, 500);
-    }
+	if (uerr) {
+	  console.error("authSignUp user_accounts insert failed", uerr); // <--- ADD
+	  const msg = (uerr as any)?.message || "Email already exists";
+	  if (msg.toLowerCase().includes("duplicate") || msg.toLowerCase().includes("unique")) {
+		return fail("EMAIL_EXISTS", "Email already exists", undefined, 409);
+	  }
+	  return fail("DB_ERROR", "Failed to create user", uerr, 500);
+	}
 
     const user = createdUsers?.[0];
     if (!user) return fail("DB_ERROR", "Failed to create user", undefined, 500);

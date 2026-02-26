@@ -108,6 +108,42 @@ create policy categories_member_all on public.categories
   using (public.posync_is_store_member(store_id))
   with check (public.posync_is_store_member(store_id));
 
+-- Permission sets
+alter table public.permission_sets enable row level security;
+alter table public.permission_sets force row level security;
+drop policy if exists permission_sets_owner_all on public.permission_sets;
+create policy permission_sets_owner_all on public.permission_sets
+  for all
+  using (public.posync_is_store_owner(store_id))
+  with check (public.posync_is_store_owner(store_id));
+
+-- Store referrals
+alter table public.store_referrals enable row level security;
+alter table public.store_referrals force row level security;
+drop policy if exists store_referrals_owner_all on public.store_referrals;
+create policy store_referrals_owner_all on public.store_referrals
+  for all
+  using (public.posync_is_store_owner(store_id))
+  with check (public.posync_is_store_owner(store_id));
+
+-- Receipt sequences (used for receipt generation)
+alter table public.receipt_sequences enable row level security;
+alter table public.receipt_sequences force row level security;
+drop policy if exists receipt_sequences_owner_all on public.receipt_sequences;
+create policy receipt_sequences_owner_all on public.receipt_sequences
+  for all
+  using (public.posync_is_store_owner(store_id))
+  with check (public.posync_is_store_owner(store_id));
+
+-- Activity events
+alter table public.activity_events enable row level security;
+alter table public.activity_events force row level security;
+drop policy if exists activity_events_member_all on public.activity_events;
+create policy activity_events_member_all on public.activity_events
+  for all
+  using (public.posync_is_store_member(store_id))
+  with check (public.posync_is_store_member(store_id));
+
 -- Products
 alter table public.products enable row level security;
 alter table public.products force row level security;

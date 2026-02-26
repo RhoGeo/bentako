@@ -13,9 +13,24 @@ function unwrap(res) {
 }
 
 function extractApiErrorMessage(err) {
-  const d = err?.response?.data || err?.data;
-  const msg = d?.error?.message || d?.message;
-  return msg || err?.message || "Sign up failed";
+  // fetch wrapper stores the server JSON here
+  const payload = err?.payload;
+
+  const msg =
+    payload?.error?.message ||
+    err?.message ||
+    "Sign up failed";
+
+  const details =
+    payload?.error?.details?.message ||
+    payload?.error?.details?.hint ||
+    payload?.error?.details?.details ||
+    payload?.error?.details;
+
+  // only show verbose detail in dev to avoid leaking internals in prod
+  if (import.meta.env.DEV && details) return `${msg} — ${typeof details === "string" ? details : JSON.stringify(details)}`;
+
+  return msg;
 }
 
 function normalizeSession(session) {

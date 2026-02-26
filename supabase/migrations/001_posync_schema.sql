@@ -7,6 +7,10 @@ create extension if not exists pgcrypto;
 create extension if not exists citext;
 create extension if not exists pg_trgm;
 
+-- Supabase commonly installs extensions into the dedicated "extensions" schema.
+-- Ensure gen_random_uuid()/gen_random_bytes() resolve during migrations.
+set search_path = public, extensions;
+
 create or replace function public.set_updated_at()
 returns trigger
 language plpgsql

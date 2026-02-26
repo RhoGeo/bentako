@@ -70,7 +70,7 @@ begin
       ) values (
         p_store_id, true, null, v_category_id,
         btrim(p_name), null, null, null,
-        false, 0, nullif(coalesce(p_low_stock_threshold, 0), 0),
+        false, null, nullif(coalesce(p_low_stock_threshold, 0), 0),
         p_user_id, true
       ) returning product_id into v_parent_id;
     else
@@ -83,7 +83,7 @@ begin
           price_centavos = null,
           cost_price_centavos = null,
           track_stock = false,
-          stock_quantity = 0,
+          stock_quantity = null,
           low_stock_threshold = nullif(coalesce(p_low_stock_threshold, 0), 0),
           is_active = true,
           deleted_at = null

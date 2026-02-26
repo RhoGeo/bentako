@@ -11,6 +11,17 @@ export function getServiceClient() {
   const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (!url) throw new Error("Missing SUPABASE_URL secret");
   if (!key) throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY secret");
+  
+  try {
+    const payload = JSON.parse(atob(key.split(".")[1] || ""));
+    if (payload?.role !== "service_role") {
+      throw new Error(`SUPABASE_SERVICE_ROLE_KEY is not service_role (got: ${payload?.role})`);
+    }
+  } catch (e) {
+    // if it can't decode, still fail loudly (prevents silent anon usage)
+    throw new Error(`SUPABASE_SERVICE_ROLE_KEY invalid/unexpected: ${e?.message || e}`);
+  }
+  
   return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
@@ -20,3 +31,4 @@ export function getServiceClient() {
 export function supabaseService() {
   return getServiceClient();
 }
+
