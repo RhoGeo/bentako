@@ -15,7 +15,6 @@ import { syncNow, startAutoSync } from "@/components/lib/syncManager";
 import { setActiveStoreId, useActiveStoreId, hasActiveStoreSelection } from "@/components/lib/activeStore";
 import { useStoresForUser } from "@/components/lib/useStores";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { useOfflineSync } from "@/hooks/useOfflineSync";
 
 const NAV_ITEMS = [
   { label: "Reports", icon: BarChart3, page: "Reports" },
@@ -59,7 +58,6 @@ export default function Layout({ children, currentPageName }) {
   const [storeSwitcherOpen, setStoreSwitcherOpen] = useState(false);
   const showTabs = TAB_PAGES.includes(currentPageName);
   const { storeId } = useActiveStoreId();
-  const salesSync = useOfflineSync({ storeId });
   const { stores, isLoading: storesLoading } = useStoresForUser();
   const storeIdOf = (s) => s?.id || s?.store_id;
   const { isUsingSafeDefaults, settings } = useStoreSettings(storeId);
@@ -73,16 +71,18 @@ export default function Layout({ children, currentPageName }) {
 
   const queuedCount = queueCounts?.queued || 0;
   const failedPermanentCount = queueCounts?.failed_permanent || 0;
-  const pendingSalesCount = salesSync?.pendingCount || 0;
-  const failedSalesCount = salesSync?.failedCount || 0;
 
-  const combinedQueuedCount = queuedCount + pendingSalesCount;
-  const combinedFailedCount = failedPermanentCount + failedSalesCount;
+  const combinedQueuedCount = queuedCount;
+  const combinedFailedCount = failedPermanentCount;
 
   const stopTheLineReasons =
     combinedFailedCount > 0
       ? [`${combinedFailedCount} issue(s) need attention — tap Sync for details.`]
       : [];
+
+  const statusText = isSyncing
+    ? "🔄 Syncing…"
+    : (isOnline ? "🟢 Online" : "🔴 Offline — connect to record transactions");
 
   useEffect(() => {
     const goOnline = () => setIsOnline(true);
@@ -134,10 +134,7 @@ export default function Layout({ children, currentPageName }) {
     setIsSyncing(true);
     try {
       // Run both sync systems (events + offline-first sales)
-      await Promise.allSettled([
-        syncNow(storeId),
-        salesSync?.syncSales?.(),
-      ]);
+      await syncNow(storeId);
     } finally {
       setIsSyncing(false);
     }
@@ -175,7 +172,7 @@ export default function Layout({ children, currentPageName }) {
               </div>
             </div>
             <div className="mt-3 flex items-center justify-between">
-              <div className="text-xs text-blue-50">{salesSync?.statusText}</div>
+              <div className="text-xs text-blue-50">{statusText}</div>
               <button
                 className="text-xs bg-white/15 px-3 py-1.5 rounded-full"
                 onClick={() => setStoreSwitcherOpen(true)}
@@ -292,10 +289,10 @@ export default function Layout({ children, currentPageName }) {
                 className="touch-target px-2 rounded-xl hover:bg-white/10 active:bg-white/15"
                 aria-label="Open sync status"
               >
-                <RefreshCw className={`w-5 h-5 ${(salesSync?.isSyncing || isSyncing) ? "animate-spin" : ""}`} />
+                <RefreshCw className={`w-5 h-5 ${isSyncing ? "animate-spin" : ""}`} />
               </button>
               <ConnectionBadge
-                status={(salesSync?.isSyncing || isSyncing) ? "syncing" : (isOnline ? "online" : "offline")}
+                status={isSyncing ? "syncing" : (isOnline ? "online" : "offline")}
                 queuedCount={combinedQueuedCount}
                 failedCount={combinedFailedCount}
                 onTap={() => setSyncDrawerOpen(true)}
@@ -305,7 +302,7 @@ export default function Layout({ children, currentPageName }) {
 
           {/* Secondary status line */}
           <div className="px-4 pb-2 flex items-center justify-between text-[11px] text-blue-100">
-            <div>{salesSync?.statusText}</div>
+            <div>{statusText}</div>
             {combinedFailedCount > 0 ? (
               <div className="flex items-center gap-1 text-amber-200">
                 <AlertTriangle className="w-3.5 h-3.5" />
@@ -320,7 +317,7 @@ export default function Layout({ children, currentPageName }) {
         <SyncBanner
           queuedCount={combinedQueuedCount}
           failedCount={combinedFailedCount}
-          isSyncing={isSyncing || salesSync?.isSyncing}
+          isSyncing={isSyncing}
           onSyncNow={handleSyncNow}
           onViewDetails={() => setSyncDrawerOpen(true)}
         />
@@ -332,7 +329,7 @@ export default function Layout({ children, currentPageName }) {
         <SheetContent side="bottom" className="p-0 rounded-t-2xl">
           <SheetHeader className="px-4 pt-4 pb-2">
             <SheetTitle>Sync Status</SheetTitle>
-            <p className="text-xs text-stone-500">Events + Sales sync summary</p>
+            <p className="text-xs text-stone-500">Event sync summary</p>
           </SheetHeader>
           <div className="px-4 pb-4 space-y-3">
             <div className="grid grid-cols-2 gap-2">
@@ -349,9 +346,9 @@ export default function Layout({ children, currentPageName }) {
             <button
               className={`w-full h-12 rounded-2xl font-semibold flex items-center justify-center gap-2 touch-target ${navigator.onLine ? "bg-blue-600 text-white" : "bg-stone-200 text-stone-500"}`}
               onClick={handleSyncNow}
-              disabled={!navigator.onLine || isSyncing || salesSync?.isSyncing}
+              disabled={!navigator.onLine || isSyncing}
             >
-              <RefreshCw className={`w-4 h-4 ${(isSyncing || salesSync?.isSyncing) ? "animate-spin" : ""}`} />
+              <RefreshCw className={`w-4 h-4 ${isSyncing ? "animate-spin" : ""}`} />
               Sync Now
             </button>
 

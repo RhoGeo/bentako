@@ -93,6 +93,10 @@ export default function RestockItemDrawer({ open, onClose, storeId, settings, pr
   }, [restockQty, newCostPesos]);
 
   const doQueue = async (owner_pin_proof) => {
+    if (!navigator.onLine) {
+      toast.error("Offline — connect to internet to restock.");
+      return;
+    }
     const event_id = generateEventId();
     const restock_id = event_id;
     const qty = Number(restockQty || 0);

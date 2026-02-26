@@ -5,9 +5,6 @@ import { requireAuth } from "../_shared/auth.ts";
 import { supabaseService } from "../_shared/supabase.ts";
 import { requireStoreAccess, requireStorePermission } from "../_shared/storeAccess.ts";
 
-out = await supabase.rpc("posync_apply_sale", { ... p_sale: sale });
-if (error) throw new Error(error.message);
-
 type EventEnvelope = {
   event_id: string;
   store_id: string;
@@ -26,13 +23,6 @@ function assertString(v: unknown, field: string) {
 
 function classifyFailure(err: unknown): "failed_retry" | "failed_permanent" {
   const msg = err instanceof Error ? err.message : String(err);
-
-  // If this came from PostgREST/Supabase, it may have a code field
-  const code = (err as any)?.code;
-
-  // SQL RPC raises errcode 22023 for "Parent products are not sellable"
-  if (code === "22023") return "failed_permanent";
-
   if (
     msg === "AUTH_REQUIRED" ||
     msg === "AUTH_EXPIRED" ||
@@ -44,6 +34,7 @@ function classifyFailure(err: unknown): "failed_retry" | "failed_permanent" {
     /NOT_FOUND/i.test(msg) ||
     /not found/i.test(msg) ||
     /Parent products are not sellable/i.test(msg) ||
+    /invalid input syntax for type json/i.test(msg) ||
     /PAYMENT_EXCEEDS_BALANCE/i.test(msg) ||
     /NEGATIVE_STOCK_NOT_ALLOWED/i.test(msg) ||
     /SALE_NOT_VOIDABLE/i.test(msg) ||
@@ -84,8 +75,6 @@ async function applyCompleteSale(supabase: any, store_id: string, user_id: strin
   const client_tx_id = assertString(payload?.client_tx_id, "client_tx_id");
   const sale = payload?.sale;
   if (!sale) throw new Error("sale required");
-  if (typeof sale !== "object" || Array.isArray(sale)) {
-    throw new Error("sale must be an object");
 
   const { data, error } = await supabase.rpc("posync_apply_sale", {
     p_store_id: store_id,

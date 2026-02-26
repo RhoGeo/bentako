@@ -168,6 +168,10 @@ export default function RestockChecklist() {
   };
 
   const queueSelected = async (owner_pin_proof) => {
+    if (!navigator.onLine) {
+      toast.error("Offline — connect to internet to restock.");
+      return;
+    }
     const device_id = getDeviceId();
     const selectedIds = Object.keys(form).filter((pid) => form[pid]?.selected);
     if (selectedIds.length === 0) {

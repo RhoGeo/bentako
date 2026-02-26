@@ -90,6 +90,10 @@ export default function SalesLog() {
   };
 
   const enqueueVoid = async ({ owner_pin_proof }) => {
+    if (!navigator.onLine) {
+      toast.error("Offline — connect to internet to void sales.");
+      return;
+    }
     if (!selectedSale?.sale_id) return;
     const event_id = generateEventId();
     const device_id = getDeviceId();
@@ -107,7 +111,7 @@ export default function SalesLog() {
       created_at_device: Date.now(),
     });
 
-    toast.success(navigator.onLine ? "Void queued & syncing…" : "Void queued — magsi-sync pag online.");
+    toast.success("Void queued & syncing…");
     setVoidOpen(false);
     setSelectedSale(null);
     setVoidNote("");
@@ -115,6 +119,10 @@ export default function SalesLog() {
   };
 
   const enqueueRefund = async ({ owner_pin_proof }) => {
+    if (!navigator.onLine) {
+      toast.error("Offline — connect to internet to refund sales.");
+      return;
+    }
     if (!selectedSale?.sale_id) return;
     const event_id = generateEventId();
     const device_id = getDeviceId();
@@ -136,7 +144,7 @@ export default function SalesLog() {
       created_at_device: Date.now(),
     });
 
-    toast.success(navigator.onLine ? "Refund queued & syncing…" : "Refund queued — magsi-sync pag online.");
+    toast.success("Refund queued & syncing…");
     setRefundOpen(false);
     setSelectedSale(null);
     setRefundNote("");

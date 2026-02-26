@@ -132,6 +132,10 @@ export default function AdjustStockDrawer({
     async ({ owner_pin_proof }) => {
       if (!storeId) return;
       if (!selected?.id) return;
+      if (!navigator.onLine) {
+        toast.error("Offline — connect to internet to adjust stock.");
+        return;
+      }
       if (!reason) {
         toast.error("Piliin ang reason.");
         return;

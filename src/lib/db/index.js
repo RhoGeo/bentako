@@ -33,12 +33,3 @@ export {
 } from "./meta";
 
 
-export {
-  savePendingSale,
-  listPendingSales,
-  listSalesByStatus,
-  getPendingSalesCounts,
-  markSalesStatus,
-  deletePendingSales,
-  resetStaleSyncing,
-} from "./pendingSales";

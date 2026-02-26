@@ -170,6 +170,10 @@ export default function CsvRestockCard({ storeId, settings, products }) {
   };
 
   const queueBatch = async (owner_pin_proof) => {
+    if (!navigator.onLine) {
+      toast.error("Offline — connect to internet to import restock.");
+      return;
+    }
     const device_id = getDeviceId();
     const actionable = parsedRows.filter((r) => r.ok && r.actionable);
     if (actionable.length === 0) {

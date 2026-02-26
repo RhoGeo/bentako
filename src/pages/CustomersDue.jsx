@@ -97,6 +97,10 @@ export default function CustomersDue() {
   };
 
   const handleRecordPayment = async () => {
+    if (!navigator.onLine) {
+      toast.error("Offline — connect to internet to record payments.");
+      return;
+    }
     const { customer } = paymentSheet;
     const amount = parseFloat(payForm.amount || "0");
     if (amount <= 0) { toast.error("Amount must be greater than 0."); return; }
@@ -108,7 +112,7 @@ export default function CustomersDue() {
     const event_id = generateEventId();
     const amountCentavos = Math.round(amount * 100);
 
-    // Queue recordPayment event (offline-first)
+    // Queue recordPayment event
     await enqueueOfflineEvent({
       store_id: storeId,
       event_id,
@@ -124,7 +128,7 @@ export default function CustomersDue() {
       created_at_device: Date.now(),
     });
 
-    // Optimistic local balance update (offline-first UX)
+    // Optimistic local balance update
     try {
       await patchCachedCustomerSnapshot(storeId, customer.id, {
         ...customer,

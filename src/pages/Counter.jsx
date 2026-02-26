@@ -31,7 +31,7 @@ import {
   upsertLocalReceipt,
   getAllCachedProducts,
   getAllCachedCustomers,
-  savePendingSale,
+  enqueueOfflineEvent,
 } from "@/lib/db";
 import {
   generateClientTxId,
@@ -41,6 +41,7 @@ import {
 } from "@/lib/ids/deviceId";
 import { useActiveStoreId } from "@/components/lib/activeStore";
 import { useStoreSettings } from "@/components/lib/useStoreSettings";
+import { syncNow } from "@/components/lib/syncManager";
 import { useCurrentStaff } from "@/components/lib/useCurrentStaff";
 import { getStockQty } from "@/components/inventory/inventoryRules";
 
@@ -289,96 +290,121 @@ export default function Counter() {
 
   const handleComplete = () => {
     if (cart.length === 0) return;
+    if (!navigator.onLine) {
+      toast.error("Offline — connect to internet to complete a sale.");
+      return;
+    }
     setPaymentOpen(true);
   };
 
   const handlePark = async () => {
-    if (cart.length === 0) return;
-
-    // Offline-first: park sale locally (sync later)
-    const sale_uuid = (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : generateClientTxId();
+    if (!navigator.onLine) {
+      toast.error("Offline — connect to internet to park or complete sales.");
+      return;
+    }
+    const client_tx_id = generateClientTxId();
+    const event_id = generateEventId();
     const device_id = getDeviceId();
 
-    const sale = {
-      sale_type: "counter",
-      status: "parked",
-      items: cart.map((i) => ({
-        product_id: i.product_id,
-        parent_id: i.parent_id || null,
-        variant_id: i.variant_id || null,
-        display_name: i.display_name || i.product_name || "",
-        qty: i.qty,
-        unit_price_centavos: i.unit_price_centavos,
-        line_discount_centavos: 0,
-      })),
-      discount_centavos: 0,
-      payments: [],
-      customer_id: null,
-      notes: "",
+    const payload = {
+      store_id: STORE_ID,
+      client_tx_id,
+      device_id,
+      sale: {
+        sale_type: "counter",
+        status: "parked",
+        items: cart.map((i) => ({
+          product_id: i.product_id,
+          parent_id: i.parent_id || null,
+          variant_id: i.variant_id || null,
+          display_name: i.display_name || i.product_name || "",
+          qty: i.qty,
+          unit_price_centavos: i.unit_price_centavos,
+          line_discount_centavos: 0,
+        })),
+        discount_centavos: 0,
+        payments: [],
+        customer_id: null,
+        notes: "",
+      },
     };
 
-    await savePendingSale({
+    await enqueueOfflineEvent({
       store_id: STORE_ID,
-      sale_uuid,
+      event_id,
       device_id,
-      cartItems: sale.items,
-      totalAmount: totalCentavos,
-      timestamp: Date.now(),
-      status: "pending",
-      sale,
+      client_tx_id,
+      event_type: "parkSale",
+      payload,
+      created_at_device: Date.now(),
     });
 
-    toast.success("Sale parked (offline-first).", { duration: 1600 });
+    toast.success("Sale parked. Di pa nabawas ang stock.");
     setCart([]);
+
+    // If online, try to sync immediately (non-blocking)
+    if (navigator.onLine) {
+      syncNow(STORE_ID).catch(() => {});
+    }
   };
 
   const handlePaymentConfirm = async (payload) => {
-    // Offline-first: always save locally first (never block checkout)
-    const sale_uuid = (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : generateClientTxId();
+    if (!navigator.onLine) {
+      toast.error("Offline — connect to internet to record sales.");
+      return;
+    }
+    // Queue event then sync immediately.
+    const client_tx_id = generateClientTxId();
+    const event_id = generateEventId();
     const device_id = getDeviceId();
+    const isOnline = navigator.onLine;
     const payments = Array.isArray(payload?.payments) ? payload.payments : [];
 
-    const sale = {
-      sale_type: "counter",
-      status: payload.status,
-      items: cart.map((i) => ({
-        product_id: i.product_id,
-        parent_id: i.parent_id || null,
-        variant_id: i.variant_id || null,
-        display_name: i.display_name || i.product_name || "",
-        qty: i.qty,
-        unit_price_centavos: i.unit_price_centavos,
-        line_discount_centavos: 0,
-      })),
-      discount_centavos: 0,
-      payments,
-      customer_id: payload.customer_id || null,
-      notes: payload.notes || "",
+    const completeSalePayload = {
+      store_id: STORE_ID,
+      client_tx_id,
+      device_id,
+      sale: {
+        sale_type: "counter",
+        status: payload.status,
+        items: cart.map((i) => ({
+          product_id: i.product_id,
+          parent_id: i.parent_id || null,
+          variant_id: i.variant_id || null,
+          display_name: i.display_name || i.product_name || "",
+          qty: i.qty,
+          unit_price_centavos: i.unit_price_centavos,
+          line_discount_centavos: 0,
+        })),
+        discount_centavos: 0,
+        payments,
+        customer_id: payload.customer_id || null,
+        notes: payload.notes || "",
+      },
     };
 
-    // Save to Dexie pendingSales
-    await savePendingSale({
+    await enqueueOfflineEvent({
       store_id: STORE_ID,
-      sale_uuid,
+      event_id,
       device_id,
-      cartItems: sale.items,
-      totalAmount: totalCentavos,
-      timestamp: Date.now(),
-      status: "pending",
-      sale,
+      client_tx_id,
+      event_type: "completeSale",
+      payload: completeSalePayload,
+      created_at_device: Date.now(),
     });
 
-    // Local receipt stub for UI (uses client_tx_id)
     await upsertLocalReceipt({
-      client_tx_id: sale_uuid,
+      client_tx_id,
       store_id: STORE_ID,
       local_status: "queued",
     });
 
-    toast.success("Sale recorded (offline-first).", { duration: 1600 });
+    if (isOnline) {
+      syncNow(STORE_ID)
+        .then(() => queryClient.invalidateQueries({ queryKey: ["products", STORE_ID] }))
+        .catch(() => {});
+      toast.success("Sale queued & syncing…");
 
-    // Do NOT block UI. Background sync will run when online.
-    // If online now, the global sync hook will pick this up immediately.
     setCart([]);
     setPaymentOpen(false);
   };
