@@ -404,6 +404,7 @@ export default function Counter() {
         .then(() => queryClient.invalidateQueries({ queryKey: ["products", STORE_ID] }))
         .catch(() => {});
       toast.success("Sale queued & syncing…");
+    }
 
     setCart([]);
     setPaymentOpen(false);

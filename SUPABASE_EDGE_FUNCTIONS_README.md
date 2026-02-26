@@ -35,6 +35,7 @@ supabase functions deploy getCustomerLedger
 
 # Reports / History
 supabase functions deploy listSales
+supabase functions deploy saleDetails
 supabase functions deploy getInventoryMetrics
 supabase functions deploy listStockLedger
 supabase functions deploy acknowledgePolicy

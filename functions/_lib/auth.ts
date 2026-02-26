@@ -33,13 +33,23 @@ function getBearerToken(req: Request): string | null {
   return m?.[1]?.trim() || null;
 }
 
+
+function getAccessTokenFromRequest(req: Request): string | null {
+  // Frontend uses anon key for function gateway auth and passes the real session token separately.
+  const custom = req.headers.get("x-posync-access-token") || req.headers.get("X-POSYNC-ACCESS-TOKEN");
+  if (custom && String(custom).trim()) return String(custom).trim();
+  return getBearerToken(req);
+}
+
+
+
 export async function requireAuth(base44: any, req: Request): Promise<{ user: AuthedUser; session: AuthedSession }>{
   assertRequiredEntitiesExist(base44, [
     "UserAccount",
     "AuthSession",
   ]);
 
-  const token = getBearerToken(req);
+  const token = getAccessTokenFromRequest(req);
   if (!token) {
     throw Object.assign(new Error("Unauthorized"), { code: "UNAUTHORIZED" });
   }
