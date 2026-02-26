@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
-import { ArrowLeft, Layers, RefreshCw, Clock } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { Layers, RefreshCw, Clock } from "lucide-react";
+// no routing needed here; SubpageHeader handles back navigation
+import SubpageHeader from "@/components/layout/SubpageHeader";
 import { useQuery } from "@tanstack/react-query";
 import { invokeFunction } from "@/api/posyncClient";
 import { useStoresForUser } from "@/components/lib/useStores";
@@ -21,7 +22,6 @@ function rangeForChip(chip) {
 }
 
 export default function CombinedView() {
-  const navigate = useNavigate();
   const { stores, memberships, isLoading } = useStoresForUser();
   const [dateRange, setDateRange] = useState("Today");
 
@@ -60,13 +60,20 @@ export default function CombinedView() {
 
   return (
     <div className="pb-24">
-      <div className="sticky top-0 bg-white/95 backdrop-blur-sm border-b border-stone-100 px-4 py-3 flex items-center gap-3 z-20">
-        <button onClick={() => navigate(-1)} className="touch-target"><ArrowLeft className="w-5 h-5 text-stone-600" /></button>
-        <h1 className="text-lg font-bold text-stone-800 flex-1">Owner Combined View</h1>
-        <Button variant="outline" className="h-9" onClick={() => refetch()} disabled={!navigator.onLine || anyLoading}>
-          <RefreshCw className={`w-4 h-4 ${anyLoading ? "animate-spin" : ""}`} />
-        </Button>
-      </div>
+      <SubpageHeader
+        title="Owner Combined View"
+        subtitle="Read-only analytics across stores"
+        right={
+          <Button
+            variant="outline"
+            className="h-9 bg-white/10 text-white border-white/20 hover:bg-white/15"
+            onClick={() => refetch()}
+            disabled={!navigator.onLine || anyLoading}
+          >
+            <RefreshCw className={`w-4 h-4 ${anyLoading ? "animate-spin" : ""}`} />
+          </Button>
+        }
+      />
 
       {!navigator.onLine && (
         <div className="px-4 py-3 text-xs text-amber-700 bg-amber-50 border-b border-amber-200">

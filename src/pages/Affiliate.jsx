@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
-import { ArrowLeft, Gift, Copy, Share2, Wallet, CheckCircle2 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { Gift, Copy, Share2, Wallet, CheckCircle2 } from "lucide-react";
+// SubpageHeader handles back navigation
+import SubpageHeader from "@/components/layout/SubpageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,7 +25,6 @@ function pesosToCentavos(pesosStr) {
 }
 
 export default function Affiliate() {
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const { storeId } = useActiveStoreId();
@@ -139,10 +139,7 @@ export default function Affiliate() {
 
   return (
     <div className="pb-24">
-      <div className="sticky top-0 bg-white/95 backdrop-blur-sm border-b border-stone-100 px-4 py-3 flex items-center gap-3 z-20">
-        <button onClick={() => navigate(-1)} className="touch-target"><ArrowLeft className="w-5 h-5 text-stone-600" /></button>
-        <h1 className="text-lg font-bold text-stone-800">Affiliate / Referral</h1>
-      </div>
+      <SubpageHeader title="Affiliate / Referral" />
 
       <div className="px-4 py-5 space-y-4">
         {/* My referral code */}

@@ -15,7 +15,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { ArrowLeft, ScanLine, Trash2, Plus, Save } from "lucide-react";
+import { ScanLine, Trash2, Plus, Save } from "lucide-react";
+import SubpageHeader from "@/components/layout/SubpageHeader";
 import BarcodeScannerModal from "@/components/global/BarcodeScannerModal";
 import { normalizeBarcode } from "@/lib/ids/deviceId";
 import { getCachedProductByBarcode, upsertCachedProducts, deleteCachedProductsByIds } from "@/lib/db";
@@ -378,34 +379,31 @@ export default function ProductForm() {
 
   return (
     <div className="pb-24">
-      {/* Header */}
-      <div className="sticky top-0 bg-white/95 backdrop-blur-sm border-b border-stone-100 px-4 py-3 flex items-center gap-3 z-20">
-        <button onClick={() => navigate(-1)} className="touch-target">
-          <ArrowLeft className="w-5 h-5 text-stone-600" />
-        </button>
-        <h1 className="text-lg font-bold text-stone-800 flex-1">
-          {isEdit ? "Edit Product" : "New Product"}
-        </h1>
-
-        {isEdit && (
-          <Button
-            onClick={handleDelete}
-            disabled={saving}
-            variant="outline"
-            className="h-9 px-3 border-red-200 text-red-700 hover:bg-red-50"
-          >
-            <Trash2 className="w-4 h-4" />
-          </Button>
-        )}
-        <Button
-          onClick={handleSave}
-          disabled={saving}
-          className="bg-blue-600 hover:bg-blue-700 h-9 px-4 touch-target"
-        >
-          <Save className="w-4 h-4 mr-1.5" />
-          {saving ? "Saving…" : "Save"}
-        </Button>
-      </div>
+      <SubpageHeader
+        title={isEdit ? "Edit Item" : "New Item"}
+        right={
+          <div className="flex items-center gap-2">
+            {isEdit ? (
+              <Button
+                onClick={handleDelete}
+                disabled={saving}
+                variant="outline"
+                className="h-9 px-3 border-white/30 bg-white/10 text-white hover:bg-white/15"
+              >
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            ) : null}
+            <Button
+              onClick={handleSave}
+              disabled={saving}
+              className="bg-white text-blue-700 hover:bg-white/90 h-9 px-4"
+            >
+              <Save className="w-4 h-4 mr-1.5" />
+              {saving ? "Saving…" : "Save"}
+            </Button>
+          </div>
+        }
+      />
 
       <div className="px-4 py-5 space-y-6">
         {isLoading ? (

@@ -422,6 +422,7 @@ export default function Counter() {
           onEnterSubmit={handleEnterSubmit}
           autoAddOnEnter={autoAddOnEnter}
           setAutoAddOnEnter={setAutoAddOnEnter}
+          placeholder="I want to sell…"
           onScanIconClick={() => setScannerOpen(true)}
         />
       </div>

@@ -2,33 +2,93 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+  Global UI tokens + mobile ergonomics
+  - Keep this file as the single source of truth for global CSS.
+  - We intentionally include safe-area helpers and large touch targets.
+*/
+
+:root {
+  --pos-primary: #2563eb; /* blue-600 */
+  --pos-primary-dark: #1d4ed8; /* blue-700 */
+  --pos-accent: #f59e0b;
+  --pos-success: #059669;
+  --pos-warning: #ea580c;
+  --pos-danger: #dc2626;
+  --pos-bg: #fafaf9; /* stone-50 */
+  --pos-card: #ffffff;
+  --pos-text: #1c1917; /* stone-900 */
+  --pos-text-muted: #78716c; /* stone-500 */
+  --pos-border: #e7e5e4; /* stone-200 */
+}
+
+body {
+  background-color: var(--pos-bg);
+  color: var(--pos-text);
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+/* Large touch targets (mobile first) */
+.touch-target {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* Bottom safe-area padding for iOS */
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Smooth scrolling for iOS */
+.scroll-smooth {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Prevent text selection on tappable UI */
+.no-select {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Numeric input: hide spinners */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
 @layer base {
   :root {
     --background: 0 0% 100%;
-    --foreground: 0 0% 3.9%;
+    --foreground: 20 14.3% 4.1%;
     --card: 0 0% 100%;
-    --card-foreground: 0 0% 3.9%;
+    --card-foreground: 20 14.3% 4.1%;
     --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 3.9%;
-    --primary: 0 0% 9%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 0 0% 96.1%;
-    --secondary-foreground: 0 0% 9%;
-    --muted: 0 0% 96.1%;
-    --muted-foreground: 0 0% 45.1%;
-    --accent: 0 0% 96.1%;
-    --accent-foreground: 0 0% 9%;
+    --popover-foreground: 20 14.3% 4.1%;
+
+    /* Theme: Blue primary (matches app header + CTAs) */
+    --primary: 217 91% 40%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 20 5.9% 90%;
+    --secondary-foreground: 24 9.8% 10%;
+    --muted: 20 5.9% 90%;
+    --muted-foreground: 25 5.3% 44.7%;
+    --accent: 43 96% 56%;
+    --accent-foreground: 24 9.8% 10%;
     --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 89.8%;
-    --input: 0 0% 89.8%;
-    --ring: 0 0% 3.9%;
-    --chart-1: 12 76% 61%;
-    --chart-2: 173 58% 39%;
-    --chart-3: 197 37% 24%;
-    --chart-4: 43 74% 66%;
-    --chart-5: 27 87% 67%;
-    --radius: 0.5rem;
+    --destructive-foreground: 60 9.1% 97.8%;
+    --border: 20 5.9% 90%;
+    --input: 20 5.9% 90%;
+    --ring: 217 91% 40%;
+    --radius: 0.75rem;
+
     --sidebar-background: 0 0% 98%;
     --sidebar-foreground: 240 5.3% 26.1%;
     --sidebar-primary: 240 5.9% 10%;
@@ -59,11 +119,7 @@
     --border: 0 0% 14.9%;
     --input: 0 0% 14.9%;
     --ring: 0 0% 83.1%;
-    --chart-1: 220 70% 50%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
+
     --sidebar-background: 240 5.9% 10%;
     --sidebar-foreground: 240 4.8% 95.9%;
     --sidebar-primary: 224.3 76.3% 48%;
@@ -73,11 +129,7 @@
     --sidebar-border: 240 3.7% 15.9%;
     --sidebar-ring: 217.2 91.2% 59.8%;
   }
-}
 
-
-
-@layer base {
   * {
     @apply border-border outline-ring/50;
   }

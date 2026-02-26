@@ -2,7 +2,8 @@ import React, { useState } from "react";
 import { invokeFunction } from "@/api/posyncClient";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import CentavosDisplay from "@/components/shared/CentavosDisplay";
-import { Users, ArrowLeft, CreditCard, Clock, ChevronRight, Banknote, Smartphone, Landmark, WalletCards } from "lucide-react";
+import { Users, CreditCard, Clock, ChevronRight, Banknote, Smartphone, Landmark, WalletCards } from "lucide-react";
+import SubpageHeader from "@/components/layout/SubpageHeader";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -160,10 +161,7 @@ export default function CustomersDue() {
   if (!canView) {
     return (
       <div className="pb-24">
-        <div className="sticky top-0 bg-white/95 backdrop-blur-sm border-b border-stone-100 px-4 py-3 flex items-center gap-3 z-20">
-          <button onClick={() => navigate(-1)} className="touch-target"><ArrowLeft className="w-5 h-5 text-stone-600" /></button>
-          <h1 className="text-lg font-bold text-stone-800">Customers (Utang)</h1>
-        </div>
+        <SubpageHeader title="Customers (Utang)" />
         <div className="flex flex-col items-center justify-center min-h-[60vh] px-6 text-center">
           <p className="text-stone-500 text-sm">{guard(staffMember, "customers_view").reason}</p>
         </div>
@@ -204,10 +202,11 @@ export default function CustomersDue() {
 
     return (
       <div className="pb-24">
-        <div className="sticky top-0 bg-white/95 backdrop-blur-sm border-b border-stone-100 px-4 py-3 flex items-center gap-3 z-20">
-          <button onClick={() => setSelectedCustomer(null)} className="touch-target"><ArrowLeft className="w-5 h-5 text-stone-600" /></button>
-          <h1 className="text-lg font-bold text-stone-800 flex-1 truncate">{selectedCustomer.name}</h1>
-        </div>
+        <SubpageHeader
+          title={selectedCustomer.name}
+          subtitle="Customer ledger"
+          onBack={() => setSelectedCustomer(null)}
+        />
         <div className="px-4 py-4 space-y-4">
           {/* Summary */}
           <div className="bg-red-50 rounded-xl p-4">
@@ -266,10 +265,7 @@ export default function CustomersDue() {
 
   return (
     <div className="pb-24">
-      <div className="sticky top-0 bg-white/95 backdrop-blur-sm border-b border-stone-100 px-4 py-3 flex items-center gap-3 z-20">
-        <button onClick={() => navigate(-1)} className="touch-target"><ArrowLeft className="w-5 h-5 text-stone-600" /></button>
-        <h1 className="text-lg font-bold text-stone-800">Customers (Utang)</h1>
-      </div>
+      <SubpageHeader title="Customers (Utang)" />
 
       {/* Summary */}
       <div className="px-4 py-4">

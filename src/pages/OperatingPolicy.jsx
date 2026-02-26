@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { ArrowLeft, CheckSquare, Square, BookOpen, Shield, List, AlertTriangle, CheckCircle2 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { CheckSquare, Square, BookOpen, Shield, List, AlertTriangle, CheckCircle2 } from "lucide-react";
+import SubpageHeader from "@/components/layout/SubpageHeader";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useCurrentStaff } from "@/components/lib/useCurrentStaff";
@@ -85,7 +85,6 @@ const WEEKLY_CHECKLIST = [
 ];
 
 export default function OperatingPolicy() {
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { storeId } = useActiveStoreId();
   const { staffMember, user } = useCurrentStaff(storeId);
@@ -118,11 +117,7 @@ export default function OperatingPolicy() {
 
   return (
     <div className="pb-24">
-      <div className="sticky top-0 bg-white/95 backdrop-blur-sm border-b border-stone-100 px-4 py-3 flex items-center gap-3 z-20">
-        <button onClick={() => navigate(-1)} className="touch-target"><ArrowLeft className="w-5 h-5 text-stone-600" /></button>
-        <h1 className="text-lg font-bold text-stone-800 flex-1">Operating Policy</h1>
-        <BookOpen className="w-4 h-4 text-stone-400" />
-      </div>
+      <SubpageHeader title="Operating Policy" subtitle="How we operate daily" right={<BookOpen className="w-4 h-4 text-blue-100" />} />
 
       <div className="px-4 py-5 space-y-4">
         {/* Acknowledgement */}

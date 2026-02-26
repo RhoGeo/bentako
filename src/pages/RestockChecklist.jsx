@@ -8,7 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Trash2, Package, ArrowLeft, PlusCircle } from "lucide-react";
+import { Trash2, Package, PlusCircle } from "lucide-react";
+import SubpageHeader from "@/components/layout/SubpageHeader";
 import { toast } from "sonner";
 
 import OwnerPinModal from "@/components/global/OwnerPinModal";
@@ -240,10 +241,7 @@ export default function RestockChecklist() {
 
   return (
     <div className="pb-28">
-      <div className="sticky top-0 bg-white/95 backdrop-blur-sm border-b border-stone-100 px-4 py-3 flex items-center gap-3 z-20">
-        <button onClick={() => navigate(-1)} className="touch-target"><ArrowLeft className="w-5 h-5 text-stone-600" /></button>
-        <h1 className="text-lg font-bold text-stone-800">Restock Checklists</h1>
-      </div>
+      <SubpageHeader title="Restock Checklists" subtitle={mode ? "Select items to restock" : "Prepare a restock list"} />
 
       {!mode ? (
         <div className="px-4 py-5 space-y-3">

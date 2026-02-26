@@ -4,7 +4,8 @@ import { createPageUrl } from "@/utils";
 import { setActiveStoreId } from "@/components/lib/activeStore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, CheckCircle2, Link2 } from "lucide-react";
+import { CheckCircle2, Link2 } from "lucide-react";
+import SubpageHeader from "@/components/layout/SubpageHeader";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/AuthContext";
 import { invokeFunction } from "@/api/posyncClient";
@@ -40,11 +41,8 @@ export default function AcceptInvite() {
   };
 
   return (
-    <div className="min-h-[100dvh] bg-stone-50 pb-24">
-      <div className="sticky top-0 bg-white/95 backdrop-blur-sm border-b border-stone-100 px-4 py-3 flex items-center gap-3 z-20">
-        <button onClick={() => navigate(-1)} className="touch-target"><ArrowLeft className="w-5 h-5 text-stone-600" /></button>
-        <h1 className="text-lg font-bold text-stone-800">Accept Staff Invite</h1>
-      </div>
+    <div className="pb-24">
+      <SubpageHeader title="Accept Staff Invite" />
 
       <div className="px-4 py-6 max-w-md mx-auto space-y-4">
         <div className="bg-white rounded-2xl border border-stone-100 shadow-sm p-5">

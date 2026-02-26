@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { ArrowLeft, Wallet, Plus, WifiOff, CheckCircle2, Clock, XCircle } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { Wallet, Plus, WifiOff, CheckCircle2, Clock, XCircle } from "lucide-react";
+import SubpageHeader from "@/components/layout/SubpageHeader";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,7 +20,6 @@ const STATUS_CONFIG = {
 };
 
 export default function Payouts() {
-  const navigate = useNavigate();
   const { storeId } = useActiveStoreId();
   const { staffMember, user } = useCurrentStaff(storeId);
   const canView = can(staffMember, "payouts_view");
@@ -55,10 +54,7 @@ export default function Payouts() {
   if (!canView) {
     return (
       <div className="pb-24">
-        <div className="sticky top-0 bg-white/95 backdrop-blur-sm border-b border-stone-100 px-4 py-3 flex items-center gap-3 z-20">
-          <button onClick={() => navigate(-1)} className="touch-target"><ArrowLeft className="w-5 h-5 text-stone-600" /></button>
-          <h1 className="text-lg font-bold text-stone-800">Payouts</h1>
-        </div>
+        <SubpageHeader title="Payouts" />
         <div className="flex flex-col items-center justify-center min-h-[60vh] px-6 text-center">
           <p className="text-stone-500 text-sm">{guard(staffMember, "payouts_view").reason}</p>
         </div>
@@ -68,15 +64,22 @@ export default function Payouts() {
 
   return (
     <div className="pb-24">
-      <div className="sticky top-0 bg-white/95 backdrop-blur-sm border-b border-stone-100 px-4 py-3 flex items-center gap-3 z-20">
-        <button onClick={() => navigate(-1)} className="touch-target"><ArrowLeft className="w-5 h-5 text-stone-600" /></button>
-        <h1 className="text-lg font-bold text-stone-800 flex-1">Payouts</h1>
-        {canRequest && (
-          <Button onClick={() => setRequestSheet(true)} className="h-9 bg-blue-600 hover:bg-blue-700 px-3" disabled={!isOnline}>
-            <Plus className="w-4 h-4 mr-1" />Request
-          </Button>
-        )}
-      </div>
+      <SubpageHeader
+        title="Payouts"
+        subtitle={isOnline ? "Manage payout requests" : "Offline — payouts require internet"}
+        right={
+          canRequest ? (
+            <Button
+              onClick={() => setRequestSheet(true)}
+              className="h-9 bg-white/10 text-white border-white/20 hover:bg-white/15"
+              variant="outline"
+              disabled={!isOnline}
+            >
+              <Plus className="w-4 h-4 mr-1" />Request
+            </Button>
+          ) : null
+        }
+      />
 
       <div className="px-4 py-5 space-y-4">
         {/* Earnings overview */}

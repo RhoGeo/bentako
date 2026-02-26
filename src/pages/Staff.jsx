@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { ArrowLeft, UserCog, Plus, ChevronRight, ShieldCheck, Shield } from "lucide-react";
+import { UserCog, Plus, ChevronRight, ShieldCheck, Shield } from "lucide-react";
+import SubpageHeader from "@/components/layout/SubpageHeader";
 import { useNavigate, Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -139,20 +140,25 @@ export default function Staff() {
 
   return (
     <div className="pb-24">
-      <div className="sticky top-0 bg-white/95 backdrop-blur-sm border-b border-stone-100 px-4 py-3 flex items-center gap-3 z-20">
-        <button onClick={() => navigate(-1)} className="touch-target"><ArrowLeft className="w-5 h-5 text-stone-600" /></button>
-        <h1 className="text-lg font-bold text-stone-800 flex-1">Staff & Roles</h1>
-        {staffMember?.role === "owner" && canManage && (
-          <Link to={createPageUrl("StaffAssignments")}>
-            <Button variant="outline" className="h-9 mr-2">Multi-store</Button>
-          </Link>
-        )}
-        {canManage && (
-          <Button onClick={() => setShowAdd(!showAdd)} className="h-9 bg-blue-600 hover:bg-blue-700 px-3">
-            <Plus className="w-4 h-4 mr-1" />Add
-          </Button>
-        )}
-      </div>
+      <SubpageHeader
+        title="Staff & Roles"
+        right={
+          <div className="flex items-center gap-2">
+            {staffMember?.role === "owner" && canManage ? (
+              <Link to={createPageUrl("StaffAssignments")}>
+                <Button variant="outline" className="h-9 border-white/30 bg-white/10 text-white hover:bg-white/15">
+                  Multi-store
+                </Button>
+              </Link>
+            ) : null}
+            {canManage ? (
+              <Button onClick={() => setShowAdd(!showAdd)} className="h-9 bg-white text-blue-700 hover:bg-white/90 px-3">
+                <Plus className="w-4 h-4 mr-1" />Add
+              </Button>
+            ) : null}
+          </div>
+        }
+      />
 
       <div className="px-4 py-5 space-y-4">
         {!canManage && (

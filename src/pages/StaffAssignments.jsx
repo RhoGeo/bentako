@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
-import { ArrowLeft, Users } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { Users } from "lucide-react";
+import SubpageHeader from "@/components/layout/SubpageHeader";
 import { useQueryClient } from "@tanstack/react-query";
 import { useStoresForUser } from "@/components/lib/useStores";
 import { useActiveStoreId } from "@/components/lib/activeStore";
@@ -20,7 +20,6 @@ import { invokeFunction } from "@/api/posyncClient";
  * - Uses StaffMember entity as the authoritative membership model.
  */
 export default function StaffAssignments() {
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { storeId } = useActiveStoreId();
   const { stores, memberships, user } = useStoresForUser();
@@ -79,12 +78,7 @@ export default function StaffAssignments() {
   if (!canManage || staffMember?.role !== "owner") {
     return (
       <div className="pb-24">
-        <div className="sticky top-0 bg-white/95 backdrop-blur-sm border-b border-stone-100 px-4 py-3 flex items-center gap-3 z-20">
-          <button onClick={() => navigate(-1)} className="touch-target">
-            <ArrowLeft className="w-5 h-5 text-stone-600" />
-          </button>
-          <h1 className="text-lg font-bold text-stone-800">Staff Assignments</h1>
-        </div>
+        <SubpageHeader title="Staff Assignments" />
         <div className="px-4 py-10 text-sm text-stone-500">
           {staffMember?.role !== "owner"
             ? "Owner only."
@@ -96,12 +90,7 @@ export default function StaffAssignments() {
 
   return (
     <div className="pb-24">
-      <div className="sticky top-0 bg-white/95 backdrop-blur-sm border-b border-stone-100 px-4 py-3 flex items-center gap-3 z-20">
-        <button onClick={() => navigate(-1)} className="touch-target">
-          <ArrowLeft className="w-5 h-5 text-stone-600" />
-        </button>
-        <h1 className="text-lg font-bold text-stone-800 flex-1">Assign Staff (Multi-store)</h1>
-      </div>
+      <SubpageHeader title="Assign Staff" subtitle="Multi-store assignments" />
 
       <div className="px-4 py-5 space-y-4">
         <div className="bg-white rounded-xl border border-stone-100 p-4 space-y-3">

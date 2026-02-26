@@ -1,9 +1,10 @@
 import React, { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+// SubpageHeader handles back navigation
 import { createPageUrl } from "@/utils";
 import { setActiveStoreId, useActiveStoreId } from "@/components/lib/activeStore";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Store, Copy, Plus, Pencil, Archive, Trash2 } from "lucide-react";
+import SubpageHeader from "@/components/layout/SubpageHeader";
+import { Store, Copy, Plus, Pencil, Archive, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/AuthContext";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -13,7 +14,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 export default function MyStores() {
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { storeId: activeStoreId } = useActiveStoreId();
   const { memberships, refreshAuth } = useAuth();
@@ -148,15 +148,14 @@ export default function MyStores() {
 
   return (
     <div className="pb-24">
-      <div className="sticky top-0 bg-white/95 backdrop-blur-sm border-b border-stone-100 px-4 py-3 flex items-center gap-3 z-20">
-        <button onClick={() => navigate(-1)} className="touch-target">
-          <ArrowLeft className="w-5 h-5 text-stone-600" />
-        </button>
-        <h1 className="text-lg font-bold text-stone-800 flex-1">My Stores</h1>
-        <Button onClick={openCreate} className="h-9 bg-blue-600 hover:bg-blue-700 px-3">
-          <Plus className="w-4 h-4 mr-1" />New
-        </Button>
-      </div>
+      <SubpageHeader
+        title="My Stores"
+        right={
+          <Button onClick={openCreate} className="h-9 bg-white/10 text-white border-white/20 hover:bg-white/15" variant="outline">
+            <Plus className="w-4 h-4 mr-1" />New
+          </Button>
+        }
+      />
 
       <div className="px-4 py-4 space-y-3">
         <div className="flex items-center justify-between">

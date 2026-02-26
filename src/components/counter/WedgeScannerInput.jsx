@@ -1,6 +1,6 @@
 import React, { useRef, useCallback } from "react";
 import { Input } from "@/components/ui/input";
-import { ScanLine } from "lucide-react";
+import { ScanLine, Search } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 
 export default function WedgeScannerInput({
@@ -40,13 +40,19 @@ export default function WedgeScannerInput({
             onChange={(e) => onChange?.(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={placeholder}
-            className="h-12 text-base pr-12 bg-white border-stone-200 rounded-xl"
+            className="h-12 text-base pl-10 pr-12 bg-white border-stone-200 rounded-2xl shadow-sm"
             inputMode="search"
             autoComplete="off"
           />
+
+          <div className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400">
+            <Search className="w-4 h-4" />
+          </div>
+
           <button
             onClick={onScanIconClick}
-            className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-lg bg-blue-600 text-white hover:bg-blue-700 active:scale-95 transition-all"
+            aria-label="Open barcode scanner"
+            className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 flex items-center justify-center rounded-xl bg-blue-600 text-white hover:bg-blue-700 active:scale-95 transition-all"
           >
             <ScanLine className="w-4 h-4" />
           </button>

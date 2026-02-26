@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { ArrowLeft, Smartphone, ShieldOff, ShieldCheck, Pencil, Copy } from "lucide-react";
+import { Smartphone, ShieldOff, ShieldCheck, Pencil, Copy } from "lucide-react";
+import SubpageHeader from "@/components/layout/SubpageHeader";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -85,10 +86,7 @@ export default function Devices() {
 
   return (
     <div className="pb-24">
-      <div className="sticky top-0 bg-white/95 backdrop-blur-sm border-b border-stone-100 px-4 py-3 flex items-center gap-3 z-20">
-        <button onClick={() => navigate(-1)} className="touch-target"><ArrowLeft className="w-5 h-5 text-stone-600" /></button>
-        <h1 className="text-lg font-bold text-stone-800">Devices</h1>
-      </div>
+      <SubpageHeader title="Devices" />
 
       <div className="px-4 py-5 space-y-3">
         {devices.length === 0 ? (

@@ -1,10 +1,11 @@
 import React, { useMemo, useState } from "react";
-import { ArrowLeft, Receipt, AlertCircle, Ban, RotateCcw, Wallet } from "lucide-react";
+import { Receipt, AlertCircle, Ban, RotateCcw, Wallet } from "lucide-react";
+import SubpageHeader from "@/components/layout/SubpageHeader";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { invokeFunction } from "@/api/posyncClient";
-import { useStoreScope } from "@/components/lib/storeScope";
+import { useActiveStoreId } from "@/components/lib/activeStore";
 import { useCurrentStaff } from "@/components/lib/useCurrentStaff";
 import PermissionGate from "@/components/global/PermissionGate";
 import { can } from "@/components/lib/permissions";
@@ -33,8 +34,8 @@ function dateStartForPeriod(period) {
 
 export default function SalesLog() {
   const navigate = useNavigate();
-  const { storeId } = useStoreScope();
-  const { staffMember, user } = useCurrentStaff();
+  const { storeId } = useActiveStoreId();
+  const { staffMember, user } = useCurrentStaff(storeId);
   const { settings } = useStoreSettings(storeId);
   const queryClient = useQueryClient();
 
@@ -164,10 +165,7 @@ export default function SalesLog() {
   return (
     <PermissionGate staffMember={staffMember} permission="reports_drilldowns" block>
       <div className="pb-24">
-        <div className="sticky top-0 bg-white/95 backdrop-blur-sm border-b border-stone-100 px-4 py-3 flex items-center gap-3 z-20">
-          <button onClick={() => navigate(-1)} className="touch-target"><ArrowLeft className="w-5 h-5 text-stone-600" /></button>
-          <h1 className="text-lg font-bold text-stone-800">Sales</h1>
-        </div>
+        <SubpageHeader title="Sales Log" />
 
         <div className="px-4 py-4">
           <div className="bg-white rounded-xl border border-stone-100 divide-y divide-stone-50">

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { ArrowLeft, RotateCcw } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { RotateCcw } from "lucide-react";
+import SubpageHeader from "@/components/layout/SubpageHeader";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -24,7 +24,6 @@ const PERMISSION_GROUPS = [
 ];
 
 export default function Permissions() {
-  const navigate = useNavigate();
   const { storeId } = useActiveStoreId();
   const { staffMember, user } = useCurrentStaff(storeId);
   const { rawSettings } = useStoreSettings(storeId);
@@ -117,10 +116,7 @@ export default function Permissions() {
 
   return (
     <div className="pb-24">
-      <div className="sticky top-0 bg-white/95 backdrop-blur-sm border-b border-stone-100 px-4 py-3 flex items-center gap-3 z-20">
-        <button onClick={() => navigate(-1)} className="touch-target"><ArrowLeft className="w-5 h-5 text-stone-600" /></button>
-        <h1 className="text-lg font-bold text-stone-800">Permissions</h1>
-      </div>
+      <SubpageHeader title="Permissions" subtitle="Role templates and overrides" />
 
       {!canManage && (
         <div className="mx-4 mt-4 bg-stone-50 border border-stone-200 rounded-xl px-4 py-3 text-xs text-stone-500">

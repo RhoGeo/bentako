@@ -103,7 +103,6 @@ export default function More() {
   const { signOut } = useAuth();
   return (
     <div className="px-4 py-5 pb-24">
-      <h1 className="text-xl font-bold text-stone-800 mb-5">More</h1>
 
       <div className="bg-white rounded-2xl border border-stone-100 shadow-sm overflow-hidden">
         {menuItems.map((item, index) => {

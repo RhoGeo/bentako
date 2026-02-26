@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { ArrowLeft, Save, Lock, RefreshCw, AlertTriangle } from "lucide-react";
+import { Save, Lock, RefreshCw, AlertTriangle } from "lucide-react";
+import SubpageHeader from "@/components/layout/SubpageHeader";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -105,15 +106,16 @@ export default function StoreSettings() {
 
   return (
     <div className="pb-24">
-      <div className="sticky top-0 bg-white/95 backdrop-blur-sm border-b border-stone-100 px-4 py-3 flex items-center gap-3 z-20">
-        <button onClick={() => navigate(-1)} className="touch-target"><ArrowLeft className="w-5 h-5 text-stone-600" /></button>
-        <h1 className="text-lg font-bold text-stone-800 flex-1">Store Settings</h1>
-        {isOwner && (
-          <Button onClick={handleSave} disabled={saving} className="h-9 bg-blue-600 hover:bg-blue-700 px-4">
-            <Save className="w-4 h-4 mr-1.5" />{saving ? "Saving…" : "Save"}
-          </Button>
-        )}
-      </div>
+      <SubpageHeader
+        title="Store Settings"
+        right={
+          isOwner ? (
+            <Button onClick={handleSave} disabled={saving} className="h-9 bg-white text-blue-700 hover:bg-white/90 px-4">
+              <Save className="w-4 h-4 mr-1.5" />{saving ? "Saving…" : "Save"}
+            </Button>
+          ) : null
+        }
+      />
 
       <SafeDefaultsBanner show={isUsingSafeDefaults} />
 

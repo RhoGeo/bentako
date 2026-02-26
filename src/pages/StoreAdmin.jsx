@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
-import { ArrowLeft, Layers, Settings, Users, Archive, Copy, Link2, XCircle, ChevronRight } from "lucide-react";
+import { Layers, Settings, Users, Archive, Copy, Link2, XCircle, ChevronRight } from "lucide-react";
 import { useNavigate, Link } from "react-router-dom";
+import SubpageHeader from "@/components/layout/SubpageHeader";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { invokeFunction } from "@/api/posyncClient";
 import { createPageUrl } from "@/utils";
@@ -130,12 +131,7 @@ export default function StoreAdmin() {
   if (!isOwnerHere) {
     return (
       <div className="pb-24">
-        <div className="sticky top-0 bg-white/95 backdrop-blur-sm border-b border-stone-100 px-4 py-3 flex items-center gap-3 z-20">
-          <button onClick={() => navigate(-1)} className="touch-target">
-            <ArrowLeft className="w-5 h-5 text-stone-600" />
-          </button>
-          <h1 className="text-lg font-bold text-stone-800">Store Admin</h1>
-        </div>
+        <SubpageHeader title="Store Admin" subtitle="Owner tools" />
         <div className="px-4 py-10 text-sm text-stone-500">Owner only.</div>
       </div>
     );
@@ -143,17 +139,19 @@ export default function StoreAdmin() {
 
   return (
     <div className="pb-24">
-      <div className="sticky top-0 bg-white/95 backdrop-blur-sm border-b border-stone-100 px-4 py-3 flex items-center gap-3 z-20">
-        <button onClick={() => navigate(-1)} className="touch-target">
-          <ArrowLeft className="w-5 h-5 text-stone-600" />
-        </button>
-        <h1 className="text-lg font-bold text-stone-800 flex-1">Store Admin</h1>
-        {canManageStaff && (
-          <Link to={createPageUrl("StaffAssignments")}> 
-            <Button variant="outline" className="h-9">Multi-store Staff</Button>
-          </Link>
-        )}
-      </div>
+      <SubpageHeader
+        title="Store Admin"
+        subtitle="Stores, staff invites, and settings"
+        right={
+          canManageStaff ? (
+            <Link to={createPageUrl("StaffAssignments")}>
+              <Button variant="outline" className="h-9 bg-white/10 text-white border-white/20 hover:bg-white/15">
+                Multi-store Staff
+              </Button>
+            </Link>
+          ) : null
+        }
+      />
 
       <div className="px-4 py-5 space-y-4">
         <div className="bg-stone-50 rounded-xl px-4 py-3 text-xs text-stone-500 flex items-center gap-2">
