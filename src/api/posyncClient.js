@@ -5,6 +5,12 @@ function trimSlash(s) {
   return typeof s === "string" ? s.replace(/\/+$|\/+$/g, "") : s;
 }
 
+function isJwtLike(key) {
+  const k = typeof key === "string" ? key.trim() : "";
+  // legacy anon/service_role keys are JWTs with 3 segments
+  return k.split(".").length === 3;
+}
+
 function assertSupabaseConfigured() {
   const url = trimSlash(appParams?.supabaseUrl);
   const anon = appParams?.supabaseAnonKey;
@@ -25,8 +31,9 @@ export async function invokeFunction(functionName, payload = {}) {
       headers: {
         "content-type": "application/json",
         apikey: anon,
-        // Use anon key for function gateway auth; our custom session token is passed separately.
-        authorization: `Bearer ${anon}`,
+        // IMPORTANT: For new publishable keys (sb_publishable_*), do NOT send it as "Bearer" in Authorization.
+        // Supabase no longer allows non-JWT keys to be used like JWTs in the Authorization header. 
+        ...(isJwtLike(anon) ? { authorization: `Bearer ${anon}` } : {}),
         ...(access ? { "x-posync-access-token": access } : {}),
       },
       body: JSON.stringify(payload ?? {}),
@@ -55,7 +62,7 @@ export async function invokeFunction(functionName, payload = {}) {
   }
 
   if (!res.ok) {
-    const msg = json?.error?.message || `Request failed with status code ${res.status}`;
+    const msg = json?.error?.message || json?.message || `Request failed with status code ${res.status}`;
     const err = new Error(msg);
     err.status = res.status;
     err.payload = json;

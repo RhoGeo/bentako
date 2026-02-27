@@ -5,6 +5,11 @@
  * Works with both legacy service_role JWT and new sb_secret_* keys.
  */
 
+function isJwtLike(key: string): boolean {
+  const k = String(key || "").trim();
+  return k.split(".").length === 3;
+}
+
 function getEnv(name: string): string {
   return String(Deno.env.get(name) || "").trim();
 }
@@ -39,7 +44,7 @@ export async function rpcAdmin<T = any>(fnName: string, args: Record<string, any
     method: "POST",
     headers: {
       apikey: key,
-      authorization: `Bearer ${key}`,
+      ...(isJwtLike(key) ? { authorization: `Bearer ${key}` } : {}),
       "content-type": "application/json",
       accept: "application/json",
     },

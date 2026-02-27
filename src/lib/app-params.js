@@ -14,8 +14,8 @@ export const appParams = {
   supabaseUrl: import.meta.env.VITE_SUPABASE_URL || null,
   // Prefer the new publishable key if present; fallback to legacy anon key.
   supabaseAnonKey:
-    import.meta.env.VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY ||
     import.meta.env.VITE_SUPABASE_ANON_KEY ||
+    import.meta.env.VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY ||
     null,
 };
 
