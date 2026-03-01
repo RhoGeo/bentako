@@ -19,8 +19,7 @@ export function getDeviceId() {
 }
 
 export function generateClientTxId() {
-  const devicePrefix = getDeviceId().slice(0, 8);
-  return `tx-${devicePrefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  return uuidv4();
 }
 
 export function generateEventId() {
