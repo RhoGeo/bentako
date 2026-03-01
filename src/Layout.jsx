@@ -11,6 +11,7 @@ import { BarChart3, CalendarDays, ScanLine, Package, MoreHorizontal, Store, Menu
 import { Toaster } from "sonner";
 import { toast } from "sonner";
 import { getOfflineQueueCounts } from "@/lib/db";
+import { useOfflineSync } from "@/hooks/useOfflineSync";
 import { syncNow, startAutoSync } from "@/components/lib/syncManager";
 import { setActiveStoreId, useActiveStoreId, hasActiveStoreSelection } from "@/components/lib/activeStore";
 import { useStoresForUser } from "@/components/lib/useStores";
@@ -58,6 +59,7 @@ export default function Layout({ children, currentPageName }) {
   const [storeSwitcherOpen, setStoreSwitcherOpen] = useState(false);
   const showTabs = TAB_PAGES.includes(currentPageName);
   const { storeId } = useActiveStoreId();
+  const { syncSales } = useOfflineSync({ storeId });
   const { stores, isLoading: storesLoading } = useStoresForUser();
   const storeIdOf = (s) => s?.id || s?.store_id;
   const { isUsingSafeDefaults, settings } = useStoreSettings(storeId);
@@ -134,7 +136,10 @@ export default function Layout({ children, currentPageName }) {
     setIsSyncing(true);
     try {
       // Run both sync systems (events + offline-first sales)
-      await syncNow(storeId);
+      await Promise.all([
+        syncNow(storeId),
+        syncSales(),
+      ]);
     } finally {
       setIsSyncing(false);
     }
